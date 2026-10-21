@@ -1,0 +1,54 @@
+# Main agent configuration. Secrets live in .env, everything else here.
+
+channel:
+  name: "TBD"
+  language: en          # en | hi | bn ... (drives TTS voice and script language)
+  geo: IN               # ISO country code for trend sources
+  # Topics the channel covers. Empty = broad trending mix (not recommended long term).
+  niches: []
+  # Never make content about these, regardless of score.
+  blocked_topics:
+    - graphic violence or tragedies involving victims
+    - elections and political campaigning
+    - medical treatment advice
+    - gambling and betting
+
+# Model roles. Any LiteLLM model string works, e.g. "anthropic/claude-sonnet-5-5" after upgrading.
+llm:
+  fast: ollama_chat/qwen3.5:4b       # classification, scoring, short JSON tasks
+  writer: ollama_chat/qwen3.5:9b     # research briefs and scripts
+  embed: ollama/bge-m3               # multilingual embeddings (1024 dims)
+  embed_dims: 1024
+  timeout_s: 600
+
+trends:
+  sources:
+    google_trends:
+      enabled: true
+    google_news:
+      enabled: true
+    wikipedia:
+      enabled: true
+      project: en.wikipedia
+      top_n: 50
+    hackernews:
+      enabled: true
+      min_points: 150
+    youtube_trending:
+      enabled: true      # skipped automatically when YOUTUBE_API_KEY is empty
+      max_results: 50
+    rss:
+      enabled: true
+      feeds:
+        - https://www.reddit.com/r/popular/top/.rss?t=day
+  # Weights for the heuristic part of the topic score (0-100 scale overall).
+  scoring:
+    w_traffic: 0.30
+    w_corroboration: 0.25
+    w_freshness: 0.15
+    w_llm_fit: 0.30
+    freshness_half_life_h: 18
+  keep_days: 14
+
+paths:
+  data_dir: data

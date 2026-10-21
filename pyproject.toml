@@ -1,0 +1,51 @@
+[project]
+name = "ytagent"
+version = "0.1.0"
+description = "Autonomous YouTube content agent: trend research, production, publishing and learning."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.14",
+    "feedparser>=6.0",
+    "httpx>=0.27",
+    # 1.82.7 and 1.82.8 were compromised on PyPI (March 2026); 1.83.0 is the first clean release after it.
+    "litellm>=1.83.0,!=1.82.7,!=1.82.8",
+    "pgvector>=0.3",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "pyyaml>=6.0",
+    "rich>=13.7",
+    "sqlalchemy>=2.0",
+    "typer>=0.12",
+]
+
+[project.scripts]
+ytagent = "ytagent.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ytagent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
