@@ -90,5 +90,8 @@ def run_checks(settings: Settings) -> list[Check]:
                         "connected" if token.exists() else "run: ytagent youtube login", "Phase 1 upload"))
     # Pexels paused new API keys (Oct 2026); Pixabay is the primary stock source until it reopens.
     checks.append(Check("PEXELS_API_KEY", bool(env.pexels_api_key), "optional: issuance paused", "optional"))
+    uses_gemini = any(m.startswith("gemini/") for m in (settings.llm.fast, settings.llm.writer))
+    if uses_gemini:
+        checks.append(Check("GEMINI_API_KEY", bool(env.gemini_api_key), "aistudio.google.com/apikey"))
     checks.append(Check("PIXABAY_API_KEY", bool(env.pixabay_api_key), "pixabay.com/api/docs", "Phase 1 visuals"))
     return checks

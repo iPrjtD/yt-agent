@@ -111,8 +111,16 @@ def relevance(query: str, hit: dict) -> int:
     return len(_terms(query) & tags)
 
 
+_PHOTO_HOST = "pixabay.com/get/"  # full-size Pixabay photos: strictly rate-limited
+_photo_pause_until = 0.0
+
+
 def _download(url: str, path: Path, attempts: int = 3) -> Path | None:
-    """Download with back-off on rate limits; None if it keeps failing (the caller tries another candidate)."""
+    """Download with back-off; None if it keeps failing (the caller tries another candidate).
+
+    A 429 from Pixabay's photo host pauses photo downloads for 2 minutes instead of retrying.
+    """
+    global _photo_pause_until
     if path.exists():
         return path
     tmp = path.with_suffix(path.suffix + ".part")
@@ -126,6 +134,11 @@ def _download(url: str, path: Path, attempts: int = 3) -> Path | None:
             tmp.replace(path)
             return path
         except httpx.HTTPError as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status == 429 and _PHOTO_HOST in url:
+                _photo_pause_until = time.time() + 120
+                log.info("pixabay photo host rate-limited; using videos/other sources for 2 min")
+                break
             log.warning("download failed (%s), attempt %d: %s", url[-40:], attempt + 1, exc)
             time.sleep(3 * (attempt + 1))
     tmp.unlink(missing_ok=True)
@@ -142,7 +155,8 @@ def _queries(query: str) -> list[str]:
 
 def pixabay_candidates(query: str, used: set[str], limit: int = 10) -> list[Candidate]:
     out: list[Candidate] = []
-    for kind, prefix in (("video", "v"), ("photo", "p")):
+    kinds = [("video", "v")] + ([("photo", "p")] if time.time() >= _photo_pause_until else [])
+    for kind, prefix in kinds:
         seen: dict[str, dict] = {}
         for q in _queries(query):
             for hit in search(kind, q):

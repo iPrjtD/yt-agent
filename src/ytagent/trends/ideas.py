@@ -74,7 +74,8 @@ class EvergreenIdeas:
             "atomic bombs'). Mix formats: 'facts' (mind-blowing facts), 'funny' (funny or weird facts), "
             "'story' (a short true story). Avoid politics, tragedies, medical advice and anything you are unsure "
             "is true. No generic topics like 'facts about space'.")
-        ideas = llm.complete_json("fast", [{"role": "user", "content": prompt}], IdeaList).ideas
+        # One call per run, and idea quality drives everything downstream: use the writer model.
+        ideas = llm.complete_json("writer", [{"role": "user", "content": prompt}], IdeaList).ideas
         return [TrendItem(source="evergreen", external_id=topic_key(i.title), title=i.title, strength=0.6,
                           context=f"format hint: {i.format}", raw={"format": i.format})
                 for i in ideas[: self.per_run]]

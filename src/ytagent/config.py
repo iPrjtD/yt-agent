@@ -43,11 +43,12 @@ class ChannelCfg(BaseModel):
 class LlmCfg(BaseModel):
     fast: str
     writer: str
-    # Used when the writer model fails (rate limit, outage, missing key).
-    writer_fallback: str = ""
+    # Tried in order when a role's model fails (rate limit, overload, outage, missing key).
+    fallbacks: dict[str, list[str]] = Field(default_factory=dict)
     embed: str
     embed_dims: int = 1024
     timeout_s: int = 600
+    hosted_timeout_s: int = 120
 
 
 class ScoringCfg(BaseModel):

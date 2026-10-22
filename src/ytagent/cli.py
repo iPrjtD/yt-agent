@@ -46,13 +46,14 @@ def short_make(
     topic_id: int = typer.Option(None, help="Topic id (default: best scored topic)."),
     upload: bool = typer.Option(None, "--upload/--no-upload", help="Override publishing.mode."),
     fmt: str = typer.Option(None, "--format", help="facts | funny | motivation | story | trending"),
+    fresh: bool = typer.Option(False, "--fresh", help="Write a new script even if an earlier attempt saved one."),
 ) -> None:
     """Research, write, voice, render and package (or upload privately) one Short."""
     from ytagent.db import job_run
     from ytagent.pipeline import make_short
 
     with job_run("short.make") as detail:
-        detail.update(make_short(topic_id, upload, fmt))
+        detail.update(make_short(topic_id, upload, fmt, fresh))
     console.print(detail)
 
 

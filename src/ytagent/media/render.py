@@ -155,8 +155,9 @@ def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], wo
     if voice_wav.resolve() != (work / "voice.wav").resolve():
         shutil.copy(voice_wav, work / "voice.wav")
 
-    inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-i", "mascot.png"]
-    graph = ("[2:v]scale=170:-1[m];[0:v][m]overlay=36:90[v1];"
+    # The badge is looped for the whole video: a single-frame overlay can drop out after concat timestamp jumps.
+    inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-loop", "1", "-i", "mascot.png"]
+    graph = ("[2:v]scale=170:-1[m];[0:v][m]overlay=36:90:shortest=1[v1];"
              "[v1]ass=captions.ass:fontsdir=fonts[v];")
     if music:
         shutil.copy(music, work / f"music{music.suffix}")

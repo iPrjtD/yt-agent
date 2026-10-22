@@ -6,8 +6,10 @@ writer: anthropic/claude-sonnet-5-5 (plus ANTHROPIC_API_KEY in .env).
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import time
 from typing import Literal
 
 import litellm
@@ -29,7 +31,7 @@ def _is_ollama(model: str) -> bool:
 
 def _model_kwargs(model: str) -> dict:
     settings = get_settings()
-    kwargs: dict = {"timeout": settings.llm.timeout_s}
+    kwargs: dict = {"timeout": settings.llm.timeout_s if _is_ollama(model) else settings.llm.hosted_timeout_s}
     if _is_ollama(model):
         kwargs["api_base"] = settings.env.ollama_api_base
     if model.startswith("gemini/"):
@@ -37,12 +39,56 @@ def _model_kwargs(model: str) -> dict:
     return kwargs
 
 
+def _quota_file():
+    return get_settings().data_dir / "llm_quota.json"
+
+
+def _exhausted() -> dict[str, float]:
+    """Models whose daily quota ran out, mapped to the epoch time they can be used again."""
+    try:
+        data = json.loads(_quota_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {m: t for m, t in data.items() if t > time.time()}
+
+
+def _mark_exhausted(model: str, exc: Exception) -> None:
+    """Remember a per-day quota hit (e.g. 'GenerateRequestsPerDay...', 'retryDelay': '69084s')."""
+    text = str(exc)
+    if "PerDay" not in text:
+        return
+    m = re.search(r'"retryDelay":\s*"(\d+)s"', text)
+    until = time.time() + (int(m.group(1)) if m else 6 * 3600)
+    data = {**_exhausted(), model: until}
+    _quota_file().write_text(json.dumps(data), encoding="utf-8")
+    log.warning("%s daily quota used up; skipping it for %.1f h", model, (until - time.time()) / 3600)
+
+
 def _models(role: Role) -> list[str]:
     cfg = get_settings().llm
-    models = [getattr(cfg, role)]
-    if role == "writer" and cfg.writer_fallback and cfg.writer_fallback not in models:
-        models.append(cfg.writer_fallback)
-    return models
+    models = list(dict.fromkeys([getattr(cfg, role), *cfg.fallbacks.get(role, [])]))
+    skip = _exhausted()
+    available = [m for m in models if m not in skip]
+    return available or models[-1:]
+
+
+_TRANSIENT = (litellm.ServiceUnavailableError, litellm.RateLimitError, litellm.InternalServerError,
+              litellm.APIConnectionError, litellm.Timeout)
+
+
+def _call_with_retry(model: str, messages: list[dict], kwargs: dict, attempts: int = 2):
+    """Hosted models: retry short overloads / rate-limit bursts with back-off before giving up."""
+    tries = 1 if _is_ollama(model) else attempts
+    for attempt in range(tries):
+        try:
+            return litellm.completion(model=model, messages=messages, **kwargs)
+        except _TRANSIENT as exc:
+            if attempt == tries - 1:
+                raise
+            wait = 5 * (attempt + 1)
+            log.info("%s busy (%s), retrying in %ds", model, type(exc).__name__, wait)
+            time.sleep(wait)
+    raise RuntimeError("unreachable")
 
 
 def complete(role: Role, messages: list[dict], *, response_format: dict | None = None, temperature: float = 0.7,
@@ -58,12 +104,17 @@ def complete(role: Role, messages: list[dict], *, response_format: dict | None =
             kwargs["think"] = think
         if response_format:
             kwargs["response_format"] = response_format
+        if not model.startswith("gemini/"):  # Gemini 3+ deprecates sampling params; it uses its own defaults
+            kwargs["temperature"] = temperature
         try:
-            resp = litellm.completion(model=model, messages=messages, temperature=temperature, **kwargs)
+            resp = _call_with_retry(model, messages, kwargs)
         except Exception as exc:
+            if isinstance(exc, litellm.RateLimitError):
+                _mark_exhausted(model, exc)
             if i == len(models) - 1:
                 raise
-            log.warning("%s failed (%s); falling back to %s", model, type(exc).__name__, models[i + 1])
+            reason = " ".join(str(exc).split())[:240]
+            log.warning("%s failed (%s: %s); falling back to %s", model, type(exc).__name__, reason, models[i + 1])
             continue
         text = resp.choices[0].message.content or ""
         return _THINK_RE.sub("", text).strip()

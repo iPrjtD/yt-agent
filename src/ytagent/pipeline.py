@@ -75,7 +75,9 @@ def _person(topic: Topic) -> str:
     return topic.title.rsplit(" on ", 1)[0] if " on " in topic.title else ""
 
 
-def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str | None = None) -> dict:
+def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str | None = None,
+               fresh: bool = False) -> dict:
+    """`fresh` ignores scripts saved by earlier attempts on the same topic."""
     settings = get_settings()
     topic, fmt = pick_topic(topic_id, fmt)
     style = settings.formats.get(fmt)
@@ -90,7 +92,7 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
     log.info("short %d: %r -> %s", video_id, topic.title, work)
 
     try:
-        previous = _previous_attempt(work)
+        previous = None if fresh else _previous_attempt(work)
         if previous:
             log.info("reusing brief and script from %s", previous.name)
             brief = Brief(topic.title, [Source(**x) for x in json.loads((previous / "brief.json").read_text("utf-8"))])

@@ -24,9 +24,14 @@ channel:
 
 # Model roles. Any LiteLLM model string works, e.g. "anthropic/claude-sonnet-5-5" after upgrading.
 llm:
-  fast: ollama_chat/qwen3.5:4b       # classification, scoring, short JSON tasks
-  writer: ollama_chat/qwen3.5:9b     # scripts + fact check; switches to Gemini once GEMINI_API_KEY is set
-  writer_fallback: ollama_chat/qwen3.5:9b  # used if the writer fails (rate limit, outage)
+  # Gemini free tier = 20 requests/day PER MODEL, so high-volume scoring stays local and Gemini writes.
+  fast: ollama_chat/qwen3.5:4b       # topic scoring (many calls, background)
+  writer: gemini/gemini-3.5-flash    # scripts + fact check (free tier; stable)
+  fallbacks:                         # tried in order on rate limits / overload / outage
+    fast: []
+    # Free-tier Flash models get "503 high demand" at peak times; several versions spread the risk.
+    writer: [gemini/gemini-3.6-flash, gemini/gemini-3.8-flash, gemini/gemini-3.7-flash, ollama_chat/qwen3.5:9b]
+  hosted_timeout_s: 120              # cloud calls; local CPU models use timeout_s
   embed: ollama/bge-m3               # multilingual embeddings (1024 dims)
   embed_dims: 1024
   timeout_s: 600
