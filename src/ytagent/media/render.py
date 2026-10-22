@@ -85,8 +85,10 @@ def caption_chunks(words: list[Word], max_words: int = 3, max_chars: int = 16) -
     return chunks
 
 
-def build_ass(words: list[Word], labels: list[tuple[float, float, str]], width: int, height: int) -> str:
-    """Karaoke-style captions (current word in honey) plus top labels."""
+def build_ass(words: list[Word], labels: list[tuple[float, float, str]], width: int, height: int,
+              memes: list[tuple[float, float, str, str]] = (), buzz_lines: frozenset[int] = frozenset()) -> str:
+    """Karaoke-style captions (current word in honey; Buzzbee's lines in honey with white highlight),
+    top labels, and classic meme captions (black text on a white box)."""
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -98,25 +100,33 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,Poppins ExtraBold,118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,9,4,2,50,50,600,1
 Style: Label,Poppins Black,74,&H0000C3FF,&H0000C3FF,&H00141414,&H00141414,0,0,0,0,100,100,0,0,3,18,0,8,70,70,310,1
+Style: Meme,Poppins ExtraBold,84,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,3,24,0,8,90,90,300,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
+    meme_spans = [(s, e) for s, e, *_ in memes]
     for start, end, text in labels:
-        if text:
+        # A meme caption replaces the label while it is on screen.
+        if text and not any(s < end and start < e for s, e in meme_spans):
             events.append(f"Dialogue: 1,{_ts(start)},{_ts(end)},Label,,0,0,0,,{_escape(text.upper())}")
+    for start, end, top, bottom in memes:
+        text = "\\N".join(_escape(t) for t in (top, bottom) if t)
+        events.append(f"Dialogue: 2,{_ts(start)},{_ts(end)},Meme,,0,0,0,,{text}")
     chunks = caption_chunks(words)
     for ci, chunk in enumerate(chunks):
         chunk_end = chunks[ci + 1][0].start if ci + 1 < len(chunks) else chunk[-1].end + 0.3
+        buzz = chunk[0].line in buzz_lines
+        base, hot = (HONEY_ASS, WHITE_ASS) if buzz else (WHITE_ASS, HONEY_ASS)
         for wi, word in enumerate(chunk):
             w_end = chunk[wi + 1].start if wi + 1 < len(chunk) else chunk_end
             if w_end <= word.start:
                 continue
             text = " ".join(
-                (f"{{\\c{HONEY_ASS}}}{_escape(w.text.upper())}{{\\c{WHITE_ASS}}}" if j == wi else _escape(w.text.upper()))
+                (f"{{\\c{hot}}}{_escape(w.text.upper())}{{\\c{base}}}" if j == wi else _escape(w.text.upper()))
                 for j, w in enumerate(chunk))
-            events.append(f"Dialogue: 0,{_ts(word.start)},{_ts(w_end)},Caption,,0,0,0,,{text}")
+            events.append(f"Dialogue: 0,{_ts(word.start)},{_ts(w_end)},Caption,,0,0,0,,{{\\c{base}}}{text}")
     return head + "\n".join(events) + "\n"
 
 
@@ -145,8 +155,15 @@ def _segment(seg: Segment, out: Path, width: int, height: int, fps: int) -> None
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", str(out)])
 
 
+REACTION_XY = (560, 640)   # where Buzzbee pops up (480 px canvas): right side, above captions
+SFX_VOLUME = 0.45
+
+
 def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], work: Path,
-                 labels: list[tuple[float, float, str]], music: Path | None = None) -> Path:
+                 labels: list[tuple[float, float, str]], music: Path | None = None,
+                 memes: list[tuple[float, float, str, str]] = (), buzz_lines: frozenset[int] = frozenset(),
+                 reactions: list = (), sfx: list[tuple[float, Path]] = ()) -> Path:
+    """`reactions` are media.reactions.Reaction with rendered frames; `sfx` are (time, file) pairs."""
     cfg = get_settings().video
     w, h, fps = cfg.width, cfg.height, cfg.fps
     parts = []
@@ -158,7 +175,7 @@ def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], wo
     ffmpeg(["-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "video_only.mp4"], cwd=work)
 
     total = sum(seg.duration for seg in segments)
-    (work / "captions.ass").write_text(build_ass(words, labels, w, h), encoding="utf-8")
+    (work / "captions.ass").write_text(build_ass(words, labels, w, h, memes, buzz_lines), encoding="utf-8")
     fonts = work / "fonts"
     shutil.copytree(FONTS, fonts, dirs_exist_ok=True)
     shutil.copy(BRAND_DIR / "mascot.png", work / "mascot.png")
@@ -167,14 +184,35 @@ def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], wo
 
     # The badge is looped for the whole video: a single-frame overlay can drop out after concat timestamp jumps.
     inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-loop", "1", "-i", "mascot.png"]
-    graph = ("[2:v]scale=170:-1[m];[0:v][m]overlay=36:90:shortest=1[v1];"
-             "[v1]ass=captions.ass:fontsdir=fonts[v];")
+    graph = "[2:v]scale=170:-1[m];[0:v][m]overlay=36:90:shortest=1[v0];"
+    n_in = 3
+    # Buzzbee reactions: PNG sequences shifted to their start time; captions are drawn last, on top.
+    last = "v0"
+    for j, r in enumerate(reactions):
+        inputs += ["-framerate", str(fps), "-i", str(Path(r.frames_dir) / "%04d.png")]
+        x, y = REACTION_XY
+        graph += (f"[{n_in}:v]setpts=PTS-STARTPTS+{r.start:.3f}/TB[r{j}];"
+                  f"[{last}][r{j}]overlay={x}:{y}:eof_action=pass[vr{j}];")
+        last = f"vr{j}"
+        n_in += 1
+    graph += f"[{last}]ass=captions.ass:fontsdir=fonts[v];"
+
+    mix = ["[1:a]"]
     if music:
         shutil.copy(music, work / f"music{music.suffix}")
         inputs += ["-stream_loop", "-1", "-i", f"music{music.suffix}"]
         fade_at = max(0.0, total - 1.5)
-        graph += (f"[3:a]volume={MUSIC_VOLUME},afade=t=in:d=0.5,afade=t=out:st={fade_at:.2f}:d=1.5[bg];"
-                  "[1:a][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,"
+        graph += f"[{n_in}:a]volume={MUSIC_VOLUME},afade=t=in:d=0.5,afade=t=out:st={fade_at:.2f}:d=1.5[bg];"
+        mix.append("[bg]")
+        n_in += 1
+    for j, (at, path) in enumerate(sfx):
+        inputs += ["-i", str(path)]
+        ms = max(0, int(at * 1000))
+        graph += f"[{n_in}:a]aresample=48000,volume={SFX_VOLUME},adelay=delays={ms}:all=1[fx{j}];"
+        mix.append(f"[fx{j}]")
+        n_in += 1
+    if len(mix) > 1:
+        graph += (f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:dropout_transition=0:normalize=0,"
                   "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]")
     else:
         graph += "[1:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]"

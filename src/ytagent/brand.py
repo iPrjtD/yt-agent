@@ -36,9 +36,13 @@ def _bezier(p0, p1, p2, steps: int = 40) -> list[tuple[float, float]]:
             for t in (i / steps for i in range(steps + 1))]
 
 
-def mascot(size: int = 1024) -> Image.Image:
+EXPRESSIONS = ("neutral", "shocked", "laugh", "cool", "think", "sad", "love")
+
+
+def mascot(size: int = 1024, expression: str = "neutral", mouth: float = 0.0) -> Image.Image:
     """The Buzzbee reporter (headphones + mic) on a transparent square canvas.
 
+    `expression` is one of EXPRESSIONS; `mouth` (0..1) opens the mouth for talking animation.
     Coordinates are in a 1000x1000 design space, scaled to the output size.
     """
     w = size * SS
@@ -97,23 +101,94 @@ def mascot(size: int = 1024) -> Image.Image:
     d.ellipse(box(392, 638, 56, 56), fill=INK)
     d.ellipse(box(392, 638, 18, 18), fill=CORAL)
 
-    # Eyes.
-    for ex in (410, 590):
-        d.ellipse(box(ex, 440, 120, 142), fill=(255, 255, 255), outline=INK, width=px(6))
-        d.ellipse(box(ex + 8, 452, 88, 88), fill=INK)
-        d.ellipse(box(ex + 24, 428, 30, 30), fill=(255, 255, 255))
-        d.ellipse(box(ex - 5, 474, 14, 14), fill=(255, 255, 255))
+    _face(img, expression, mouth, k)
+    return img.resize((size, size), Image.LANCZOS)
 
-    # Cheeks (blended layer) and smile.
-    cheeks = Image.new("RGBA", (w, w), (0, 0, 0, 0))
+
+TEAR = (120, 200, 255)
+HEART = (235, 45, 70)
+
+
+def _face(img: Image.Image, expression: str, mouth: float, k: float) -> None:
+    """Eyes, brows, cheeks and mouth for each expression (design space 1000x1000)."""
+    d = ImageDraw.Draw(img)
+
+    def box(cx, cy, bw, bh):
+        return [(cx - bw / 2) * k, (cy - bh / 2) * k, (cx + bw / 2) * k, (cy + bh / 2) * k]
+
+    def px(v):
+        return max(1, round(v * k))
+
+    def line(*pts, width=12):
+        d.line([(x * k, y * k) for x, y in pts], fill=INK, width=px(width), joint="curve")
+
+    def round_eyes(w_=120, h_=142, pupil=88, dx=8, dy=12):
+        for ex in (410, 590):
+            d.ellipse(box(ex, 440, w_, h_), fill=(255, 255, 255), outline=INK, width=px(6))
+            d.ellipse(box(ex + dx, 440 + dy, pupil, pupil), fill=INK)
+            d.ellipse(box(ex + dx + 16, 440 + dy - 24, pupil * 0.34, pupil * 0.34), fill=(255, 255, 255))
+
+    def heart(cx, cy, s):
+        import math as _m
+        pts = [(cx + s * 16 * _m.sin(t) ** 3 / 17, cy - s * (13 * _m.cos(t) - 5 * _m.cos(2 * t)
+                - 2 * _m.cos(3 * t) - _m.cos(4 * t)) / 17) for t in [i / 40 * 2 * _m.pi for i in range(41)]]
+        d.polygon([(x * k, y * k) for x, y in pts], fill=HEART, outline=INK)
+
+    if expression == "shocked":
+        round_eyes(w_=140, h_=172, pupil=46, dx=0, dy=0)
+        line((350, 340), (410, 318), (465, 338))
+        line((535, 338), (590, 318), (650, 340))
+    elif expression == "laugh":
+        for ex in (410, 590):
+            d.arc(box(ex, 462, 104, 84), start=200, end=340, fill=INK, width=px(16))
+        d.ellipse(box(338, 500, 26, 40), fill=TEAR)  # tear of joy
+    elif expression == "cool":
+        for ex in (410, 590):
+            d.rounded_rectangle(box(ex, 445, 156, 104), radius=px(30), fill=INK)
+            line((ex - 50, 420), (ex - 20, 400), width=8)
+            d.line([((ex - 50) * k, 420 * k), ((ex - 20) * k, 400 * k)], fill=(200, 200, 200), width=px(8))
+        line((488, 438), (512, 438), width=14)
+    elif expression == "think":
+        round_eyes(dx=22, dy=-18)
+        line((540, 352), (600, 330), (655, 342))
+    elif expression == "sad":
+        round_eyes(dx=0, dy=26)
+        line((355, 372), (455, 348))  # inner ends raised = sad (the reverse reads as angry)
+        line((545, 348), (645, 372))
+        d.ellipse(box(392, 535, 26, 42), fill=TEAR)
+    elif expression == "love":
+        heart(410, 445, 70)
+        heart(590, 445, 70)
+    else:
+        round_eyes()
+
+    # Cheeks (blended layer).
+    cheeks = Image.new("RGBA", img.size, (0, 0, 0, 0))
     cd = ImageDraw.Draw(cheeks)
     for cx in (338, 662):
         cd.ellipse(box(cx, 548, 84, 48), fill=(255, 120, 135, 165))
     img.alpha_composite(cheeks)
     d = ImageDraw.Draw(img)
-    d.arc(box(505, 545, 120, 100), start=20, end=160, fill=INK, width=px(12))
 
-    return img.resize((size, size), Image.LANCZOS)
+    # Mouth.
+    if expression == "shocked":
+        d.ellipse(box(505, 585, 74, 96), fill=INK)
+    elif expression == "laugh":
+        d.chord(box(505, 540, 180, 150), start=0, end=180, fill=INK)
+        d.chord(box(505, 588, 92, 50), start=0, end=180, fill=(255, 110, 130))
+    elif expression == "sad":
+        d.arc(box(505, 612, 120, 80), start=200, end=340, fill=INK, width=px(12))
+    elif expression == "think":
+        d.line([(470 * k, 590 * k), (545 * k, 578 * k)], fill=INK, width=px(12))
+    elif expression == "cool":
+        d.arc(box(530, 548, 110, 80), start=10, end=120, fill=INK, width=px(12))
+    elif mouth > 0.05:  # talking
+        h = 20 + 80 * min(1.0, mouth)
+        d.ellipse(box(505, 570 + h / 4, 104, h), fill=INK)
+        if mouth > 0.4:
+            d.ellipse(box(505, 570 + h / 2.6, 60, h / 2.8), fill=(255, 110, 130))
+    else:
+        d.arc(box(505, 545, 120, 100), start=20, end=160, fill=INK, width=px(12))
 
 
 def radial_glow(size: tuple[int, int], center: tuple[int, int], radius: int, color, alpha: int) -> Image.Image:

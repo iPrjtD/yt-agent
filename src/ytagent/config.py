@@ -70,6 +70,9 @@ class PathsCfg(BaseModel):
 
 
 class VoiceCfg(BaseModel):
+    gemini_tts_models: list[str] = Field(default_factory=list)
+    buzzbee_voice: str = "Puck"
+    buzzbee_kokoro_voice: str = "af_sky"
     engine: str = "kokoro"
     voice: str = "af_heart"
     speed: float = 1.08
@@ -97,6 +100,8 @@ class FormatCfg(BaseModel):
     voice: str
     speed: float = 1.05
     music: str = ""
+    gemini_voice: str = "Puck"
+    style: str = "a friendly, engaging host"
 
 
 class Settings(BaseModel):

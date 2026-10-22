@@ -16,13 +16,16 @@ from sqlalchemy import select
 from ytagent.config import get_settings
 from ytagent.db import session_scope
 from ytagent.media.archive import find_archive_clip
+from ytagent.media.reactions import Reaction, loudness_envelope, render_frames
 from ytagent.media.render import Segment, pick_music, qa, render_short
+from ytagent.media.sfx import sfx_file
 from ytagent.media.visuals import Visual, find_visual, text_card
-from ytagent.media.voice import narrate
+from ytagent.media.voice import narrate_lines
 from ytagent.models import Topic, Video
+from ytagent.providers.tts import Line
 from ytagent.publish import full_description, upload_private, write_package
 from ytagent.research import Brief, Source, build_format_brief
-from ytagent.script import ShortScript, write_short
+from ytagent.script import MemePlan, ShortScript, plan_meme, write_short
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +72,50 @@ def pick_topic(topic_id: int | None, fmt: str | None = None) -> tuple[Topic, str
             if topic:
                 return topic, want
         raise ValueError("no scored topic available: run `ytagent trends run` first")
+
+
+REACTION_SECONDS = 1.6
+
+
+def _load_or_plan(previous: Path | None, work: Path, script: ShortScript, fmt: str) -> MemePlan:
+    """Reuse a saved meme plan when resuming, else ask the writer model for one."""
+    saved = previous / "plan.json" if previous else None
+    if saved and saved.exists():
+        plan = MemePlan.model_validate_json(saved.read_text("utf-8"))
+    else:
+        plan = plan_meme(script, fmt)
+    (work / "plan.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
+    return plan
+
+
+def _meme_layers(plan: MemePlan, tts_lines: list[Line], narration, starts: list[float], ends: list[float],
+                 work: Path) -> tuple[list, list[Reaction], list[tuple[float, Path]]]:
+    """Meme captions, Buzzbee reactions/talking and sound effects, timed to the narration."""
+    fps = get_settings().video.fps
+    cache = get_settings().data_dir / "cache" / "sfx"
+    memes, reactions, sfx = [], [], []
+    talks = [(narration.spans[i][0] - 0.15, narration.spans[i][1] + 0.25)
+             for i, ln in enumerate(tts_lines) if ln.speaker == "Buzzbee"]
+    for unit, step in enumerate([plan.hook, *plan.beats]):
+        start, end = starts[unit], ends[unit]
+        if step.meme_top or step.meme_bottom:
+            memes.append((start + 0.1, min(end - 0.1, start + 3.2), step.meme_top, step.meme_bottom))
+        if step.sfx != "none":
+            sfx.append((max(0.0, start - 0.05), sfx_file(step.sfx, cache)))
+        if step.reaction != "none":
+            at = start + 0.5
+            # Never overlap Buzzbee talking in the same scene.
+            stop = min([end - 0.1, *(t0 for t0, _ in talks if t0 > at)])
+            if stop - at >= 0.7:
+                reactions.append(Reaction(at, min(REACTION_SECONDS, stop - at), step.reaction))
+                sfx.append((at, sfx_file("pop", cache)))
+    for t0, t1 in talks:
+        reactions.append(Reaction(max(0.0, t0), t1 - t0, "talk"))
+    for j, r in enumerate(sorted(reactions, key=lambda r: r.start)):
+        envelope = (loudness_envelope(narration.samples, narration.sr, r.start, r.duration, fps)
+                    if r.expression == "talk" and narration.samples is not None else None)
+        render_frames(r, work / "reactions" / f"r{j:02d}", fps, envelope)
+    return memes, reactions, sfx
 
 
 def _fill_subjects(script: ShortScript, person: str) -> None:
@@ -132,10 +179,25 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         (work / "brief.json").write_text(json.dumps([asdict(x) for x in brief.sources], indent=2), encoding="utf-8")
         (work / "script.json").write_text(script.model_dump_json(indent=2), encoding="utf-8")
 
-        lines = script.lines()
-        narration = narrate(lines, work, voice=style.voice if style else None, speed=style.speed if style else None)
-        starts = [0.0] + [start for start, _ in narration.spans[1:]]
+        plan = _load_or_plan(previous, work, script, fmt)
+        # Spoken lines in order: hook, each beat (+ an optional Buzzbee quip), outro. Units = hook, beats, outro.
+        tts_lines: list[Line] = []
+        unit_of_line: list[int] = []
+        spoken = [(script.hook, plan.hook), *zip((b.narration for b in script.beats), plan.beats, strict=True)]
+        for unit, (text, step) in enumerate(spoken):
+            tts_lines.append(Line("Narrator", text, step.emotion))
+            unit_of_line.append(unit)
+            if step.buzz_line:
+                tts_lines.append(Line("Buzzbee", step.buzz_line, "playful"))
+                unit_of_line.append(unit)
+        n_units = len(script.beats) + 2
+        tts_lines.append(Line("Narrator", script.outro, plan.outro_emotion))
+        unit_of_line.append(n_units - 1)
+        narration = narrate_lines(tts_lines, work, style)
+        first_line = [unit_of_line.index(u) for u in range(n_units)]
+        starts = [0.0] + [narration.spans[first_line[u]][0] for u in range(1, n_units)]
         ends = starts[1:] + [narration.duration + 0.35]
+        lines = [None] * n_units  # one entry per unit (hook, beats, outro) for the visuals loop below
         queries = [script.hook_visual_query or script.beats[0].visual_query] + [b.visual_query for b in script.beats]
         on_screen = [""] + [b.on_screen for b in script.beats]
         _fill_subjects(script, person)
@@ -165,8 +227,11 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
                 else:
                     segments.append(Segment(visual.path, shot_len, still=visual.still, fit=fit))
 
+        memes, reactions, sfx = _meme_layers(plan, tts_lines, narration, starts, ends, work)
+        buzz_lines = frozenset(i for i, ln in enumerate(tts_lines) if ln.speaker == "Buzzbee")
         music = pick_music(video_id, style.music if style else "")
-        final = render_short(segments, narration.wav, narration.words, work, labels, music)
+        final = render_short(segments, narration.wav, narration.words, work, labels, music,
+                             memes=memes, buzz_lines=buzz_lines, reactions=reactions, sfx=sfx)
         problems = qa(final)
         description = full_description(script, brief.sources, credits)
         write_package(work, script, description)
@@ -183,6 +248,7 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         for tmp in [*work.glob("seg_*.mp4"), *work.glob("music.*"), work / "video_only.mp4", work / "concat.txt"]:
             tmp.unlink(missing_ok=True)
         shutil.rmtree(work / "fonts", ignore_errors=True)
+        shutil.rmtree(work / "reactions", ignore_errors=True)
 
     with session_scope() as s:
         row = s.get(Video, video_id)

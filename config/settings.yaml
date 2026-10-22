@@ -30,19 +30,26 @@ llm:
   fallbacks:                         # tried in order on rate limits / overload / outage
     fast: []
     # Free-tier Flash models get "503 high demand" at peak times; several versions spread the risk.
-    writer: [gemini/gemini-3.6-flash, gemini/gemini-3.8-flash, gemini/gemini-3.7-flash, ollama_chat/qwen3.5:9b]
+    writer: [gemini/gemini-3.6-flash, gemini/gemini-3.8-flash, gemini/gemini-3.7-flash,
+             gemini/gemini-3.1-flash-lite, gemini/gemini-3.5-flash-lite, ollama_chat/qwen3.5:9b]
   hosted_timeout_s: 120              # cloud calls; local CPU models use timeout_s
   embed: ollama/bge-m3               # multilingual embeddings (1024 dims)
   embed_dims: 1024
   timeout_s: 600
 
 # Content formats: target share of uploads, narrator voice, music mood (assets/music/<mood>/), writing guide.
+# gemini_voice / style: expressive narrator; voice / speed: local Kokoro fallback.
 formats:
-  facts:      {share: 0.35, voice: af_heart,   speed: 1.08, music: upbeat}
-  funny:      {share: 0.20, voice: am_puck,    speed: 1.10, music: funny}
-  motivation: {share: 0.20, voice: am_michael, speed: 0.95, music: inspiring}
-  story:      {share: 0.15, voice: af_bella,   speed: 1.02, music: ambient}
-  trending:   {share: 0.10, voice: af_heart,   speed: 1.08, music: upbeat}
+  facts:      {share: 0.35, voice: af_heart,   speed: 1.08, music: upbeat,    gemini_voice: Puck,
+               style: "an energetic, amazed science presenter"}
+  funny:      {share: 0.20, voice: am_puck,    speed: 1.10, music: funny,     gemini_voice: Fenrir,
+               style: "a hilarious, playful comedian friend"}
+  motivation: {share: 0.20, voice: am_michael, speed: 0.95, music: inspiring, gemini_voice: Charon,
+               style: "a warm, cinematic documentary storyteller"}
+  story:      {share: 0.15, voice: af_bella,   speed: 1.02, music: ambient,   gemini_voice: Enceladus,
+               style: "a gripping, suspenseful storyteller"}
+  trending:   {share: 0.10, voice: af_heart,   speed: 1.08, music: upbeat,    gemini_voice: Zephyr,
+               style: "an upbeat, fun pop-culture host"}
 
 trends:
   sources:
@@ -89,6 +96,10 @@ trends:
   keep_days: 14
 
 voice:
+  # Expressive two-voice narration (narrator + Buzzbee) via Gemini TTS; Kokoro below is the local fallback.
+  gemini_tts_models: [gemini-3.1-flash-tts-preview, gemini-3.8-flash-tts]
+  buzzbee_voice: Puck            # Gemini voice for Buzzbee's quips
+  buzzbee_kokoro_voice: af_sky   # fallback voice for Buzzbee
   engine: kokoro                 # kokoro (free, local) | elevenlabs (later)
   voice: af_heart                # Kokoro voice id; samples in data/tts_test
   speed: 1.08

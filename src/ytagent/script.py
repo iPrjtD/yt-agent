@@ -65,6 +65,35 @@ def write_short(brief: Brief, fmt: str = "facts", angle: str = "") -> ShortScrip
     return script
 
 
+Emotion = Literal["excited", "serious", "dramatic", "warm", "playful", "calm", "shocked", "inspiring"]
+
+
+class BeatPlan(BaseModel):
+    emotion: Emotion
+    reaction: Literal["none", "shocked", "laugh", "cool", "think", "sad", "love"]
+    sfx: Literal["none", "whoosh", "boom", "pop", "ding", "scratch", "boing"]
+    meme_top: str
+    meme_bottom: str
+    buzz_line: str
+
+
+class MemePlan(BaseModel):
+    hook: BeatPlan
+    beats: list[BeatPlan]
+    outro_emotion: Emotion
+
+
+def plan_meme(script: ShortScript, fmt: str) -> MemePlan:
+    """Second pass: emotions, Buzzbee reactions, meme captions, sound effects and quips for each beat."""
+    numbered = "\n".join(f"{i}: {line}" for i, line in enumerate([script.hook, *(b.narration for b in script.beats)]))
+    prompt = (ROOT / "prompts" / "meme_plan.md").read_text(encoding="utf-8").format(
+        channel=get_settings().channel.name, format_name=fmt, lines=numbered)
+    plan = llm.complete_json("writer", [{"role": "user", "content": prompt}], MemePlan, temperature=0.8)
+    blank = BeatPlan(emotion="warm", reaction="none", sfx="none", meme_top="", meme_bottom="", buzz_line="")
+    plan.beats = (plan.beats + [blank] * len(script.beats))[: len(script.beats)]
+    return plan
+
+
 class Issue(BaseModel):
     line: int = Field(description="index of the spoken line (0 = hook)")
     problem: str
