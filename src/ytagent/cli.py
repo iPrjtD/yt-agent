@@ -19,6 +19,16 @@ brand_app = typer.Typer(no_args_is_help=True, help="Channel brand assets.")
 app.add_typer(brand_app, name="brand")
 
 
+@brand_app.command("apply")
+def brand_apply(yes: bool = typer.Option(False, "--yes", help="Apply for real (default is a dry run).")) -> None:
+    """Retire old videos (private), set banner, watermark, description, keywords and playlists."""
+    from ytagent.channel import apply_brand
+
+    report = apply_brand(dry_run=not yes)
+    for line in report.done:
+        console.print(("[dry run] " if not yes else "") + line)
+
+
 @brand_app.command("render")
 def brand_render() -> None:
     """Render mascot, profile picture, banner and watermark into brand/."""
