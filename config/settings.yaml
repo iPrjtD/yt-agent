@@ -2,6 +2,8 @@
 
 channel:
   name: "TBD"
+  # The channel the agent manages; login is rejected if it signs into a different one.
+  youtube_channel_id: UCzODU-zkEJBaUqBcUwBzoig
   language: en          # en | hi | bn ... (drives TTS voice and script language)
   geo: IN               # ISO country code for trend sources
   # Topics the channel covers. Empty = broad trending mix (not recommended long term).

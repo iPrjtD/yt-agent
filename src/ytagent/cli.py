@@ -13,6 +13,8 @@ from ytagent.config import ROOT, get_settings
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 trends_app = typer.Typer(no_args_is_help=True, help="Trend research agent.")
 app.add_typer(trends_app, name="trends")
+youtube_app = typer.Typer(no_args_is_help=True, help="YouTube account connection.")
+app.add_typer(youtube_app, name="youtube")
 console = Console()
 
 
@@ -47,6 +49,46 @@ def db_upgrade() -> None:
 
     command.upgrade(Config(str(ROOT / "alembic.ini")), "head")
     console.print("[green]database up to date[/]")
+
+
+def _show_channel(expected_id: str) -> bool:
+    from ytagent.youtube import my_channel
+
+    ch = my_channel()
+    snip, stats, status = ch["snippet"], ch.get("statistics", {}), ch.get("status", {})
+    table = Table("field", "value", show_header=False)
+    for field, value in [
+        ("channel id", ch["id"]), ("title", snip.get("title")), ("handle", snip.get("customUrl")),
+        ("subscribers", stats.get("subscriberCount")), ("videos", stats.get("videoCount")),
+        ("views", stats.get("viewCount")), ("long uploads", status.get("longUploadsStatus")),
+        ("made for kids", status.get("madeForKids")),
+    ]:
+        table.add_row(field, str(value))
+    console.print(table)
+    if expected_id and ch["id"] != expected_id:
+        console.print(f"[red]Signed into channel {ch['id']}, but settings.yaml expects {expected_id}.[/] "
+                      "Run `ytagent youtube login` again and pick the right channel.")
+        return False
+    return True
+
+
+@youtube_app.command("login")
+def youtube_login() -> None:
+    """Sign in with Google in the browser and choose the channel to manage."""
+    from ytagent.youtube import TOKEN_PATH, login
+
+    login()
+    if not _show_channel(get_settings().channel.youtube_channel_id):
+        TOKEN_PATH.unlink(missing_ok=True)
+        raise typer.Exit(1)
+    console.print("[green]Connected.[/] Token saved to secrets/ (not committed).")
+
+
+@youtube_app.command("whoami")
+def youtube_whoami() -> None:
+    """Show the connected channel."""
+    if not _show_channel(get_settings().channel.youtube_channel_id):
+        raise typer.Exit(1)
 
 
 @trends_app.command("collect")
