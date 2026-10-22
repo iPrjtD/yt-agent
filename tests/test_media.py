@@ -55,3 +55,16 @@ def test_full_description_lists_used_sources():
     assert desc.startswith("Why it matters.")
     assert "- https://b.example" in desc and "a.example" not in desc
     assert desc.endswith("#shorts #buzzbee")
+    with_credits = full_description(script, sources, ["Photo: A, CC BY 4.0, via Wikimedia Commons (u)"] * 2)
+    assert with_credits.count("Photo: A, CC BY 4.0") == 1
+
+
+def test_parse_dyk_extracts_fact_and_article():
+    from ytagent.trends.ideas import parse_dyk
+
+    html = ('<ul><li>... that <b><a href="/wiki/Octopus">octopuses</a></b> (pictured) have three hearts?</li>'
+            '<li>Archive link</li></ul>')
+    items = parse_dyk(html)
+    assert len(items) == 1
+    assert items[0].title == "Did you know: octopuses have three hearts"
+    assert items[0].url == "https://en.wikipedia.org/wiki/Octopus"

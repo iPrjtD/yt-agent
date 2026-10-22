@@ -8,12 +8,13 @@ channel:
   youtube_channel_id: UCzODU-zkEJBaUqBcUwBzoig
   language: en          # en | hi | bn ... (drives TTS voice and script language)
   geo: IN               # ISO country code for trend sources
-  # Broad entertainment + information channel, no single domain. Pillars (target mix):
-  # trending 40%, amazing facts 35%, incredible stories 25%.
+  # Entertainment + information, any domain. NOT a news channel: evergreen, feel-good, surprising content.
   niches:
-    - "trending now: viral moments, movies, OTT and celebrity buzz, cricket and sports, tech and gadget launches, business and money stories"
-    - "amazing facts and information: science, space, history, nature, psychology, inventions, world records, how things work"
-    - "incredible stories: true stories, mysteries, rise and fall of famous brands and people, behind-the-scenes moments"
+    - "amazing facts: science, space, human body, animals, nature, history, psychology, inventions, records"
+    - "funny and weird: funny facts, weird history, strange laws, hilarious animal behaviour, everyday absurdities"
+    - "motivation and inspiration: real quotes and life lessons from great people, inspiring thoughts"
+    - "incredible true stories: mysteries, comebacks, rise of famous brands and people, behind the scenes"
+    - "fun pop culture: movies, cricket and sports trivia, viral internet moments (light, not news)"
   # Never make content about these, regardless of score.
   blocked_topics:
     - graphic violence or tragedies involving victims
@@ -29,26 +30,49 @@ llm:
   embed_dims: 1024
   timeout_s: 600
 
+# Content formats: target share of uploads, narrator voice, music mood (assets/music/<mood>/), writing guide.
+formats:
+  facts:      {share: 0.35, voice: af_heart,   speed: 1.08, music: upbeat}
+  funny:      {share: 0.20, voice: am_puck,    speed: 1.10, music: funny}
+  motivation: {share: 0.20, voice: am_michael, speed: 0.95, music: inspiring}
+  story:      {share: 0.15, voice: af_bella,   speed: 1.02, music: ambient}
+  trending:   {share: 0.10, voice: af_heart,   speed: 1.08, music: upbeat}
+
 trends:
   sources:
+    # Idea sources (evergreen)
+    wikipedia_dyk:
+      enabled: true      # Wikipedia "Did you know..." facts, refreshed daily, each with a source article
+    evergreen:
+      enabled: true      # LLM-proposed fact/funny/story ideas, verified later by research
+      per_run: 8
+      categories: [space, human body, animals, ocean, everyday science, psychology, weird history,
+                   inventions, money and brands, food, world records, funny animal behaviour, ancient india,
+                   optical illusions and the brain, sports trivia]
+    motivation:
+      enabled: true      # verified Wikiquote quotes + life lessons
+      per_run: 2
+      people: ["A. P. J. Abdul Kalam", "Swami Vivekananda", "Albert Einstein", "Thomas A. Edison",
+               "Nikola Tesla", "Marie Curie", "Helen Keller", "Walt Disney", "Bruce Lee", "Muhammad Ali",
+               "Steve Jobs", "Rabindranath Tagore", "Leonardo da Vinci", "Isaac Newton", "Michael Jordan",
+               "Ratan Tata", "Mother Teresa", "Theodore Roosevelt", "Maya Angelou", "Charlie Chaplin"]
+    # Pop-culture signals (light trending only; hard news is filtered out by scoring)
     google_trends:
-      enabled: true
-    google_news:
       enabled: true
     wikipedia:
       enabled: true
       project: en.wikipedia
       top_n: 50
-    hackernews:
-      enabled: true
-      min_points: 150
     youtube_trending:
       enabled: true      # skipped automatically when YOUTUBE_API_KEY is empty
       max_results: 50
+    google_news:
+      enabled: false     # news is not the channel's style
+    hackernews:
+      enabled: false
     rss:
-      enabled: true
-      feeds:
-        - https://www.reddit.com/r/popular/top/.rss?t=day
+      enabled: false
+      feeds: []
   # Weights for the heuristic part of the topic score (0-100 scale overall).
   scoring:
     w_traffic: 0.30

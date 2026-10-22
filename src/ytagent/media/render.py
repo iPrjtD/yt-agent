@@ -32,9 +32,12 @@ MUSIC_DIR = FONTS.parent / "music"
 MUSIC_VOLUME = 0.10  # music bed level under the voice (before loudness normalisation)
 
 
-def pick_music(seed: int) -> Path | None:
-    """A royalty-free track from assets/music (e.g. YouTube Audio Library downloads), rotated by video id."""
-    tracks = sorted(p for p in MUSIC_DIR.glob("*") if p.suffix.lower() in {".mp3", ".wav", ".m4a", ".ogg"})
+def pick_music(seed: int, mood: str = "") -> Path | None:
+    """A royalty-free track from assets/music/<mood>/ (or assets/music/), rotated by video id."""
+    def tracks_in(folder: Path) -> list[Path]:
+        return sorted(p for p in folder.glob("*") if p.suffix.lower() in {".mp3", ".wav", ".m4a", ".ogg"})
+
+    tracks = (tracks_in(MUSIC_DIR / mood) if mood else []) or tracks_in(MUSIC_DIR)
     return tracks[seed % len(tracks)] if tracks else None
 
 

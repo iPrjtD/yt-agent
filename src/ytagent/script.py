@@ -30,7 +30,7 @@ class ShortScript(BaseModel):
     outro: str
     description: str
     tags: list[str]
-    pillar: Literal["trending", "facts", "story"]
+    pillar: Literal["facts", "funny", "motivation", "story", "trending"]
     sources_used: list[int] = Field(default_factory=list)
 
     def lines(self) -> list[str]:
@@ -41,12 +41,13 @@ class ShortScript(BaseModel):
         return sum(len(line.split()) for line in self.lines())
 
 
-def write_short(brief: Brief, angle: str = "") -> ShortScript:
+def write_short(brief: Brief, fmt: str = "facts", angle: str = "") -> ShortScript:
     ch = get_settings().channel
+    guide = (ROOT / "prompts" / "formats" / f"{fmt}.md").read_text(encoding="utf-8").strip()
     prompt = (ROOT / "prompts" / "short_script.md").read_text(encoding="utf-8").format(
-        channel=ch.name, topic=brief.topic, angle=angle or "whatever makes it most interesting",
+        channel=ch.name, topic=brief.topic, angle=angle or "whatever makes it most engaging",
         research=brief.as_prompt() or "(no sources found: only use widely known, non-controversial facts)",
-        min_words=MIN_WORDS, max_words=MAX_WORDS,
+        format_name=fmt, format_guide=guide, min_words=MIN_WORDS, max_words=MAX_WORDS,
     )
     messages = [{"role": "user", "content": prompt}]
     script = llm.complete_json("writer", messages, ShortScript)
@@ -57,4 +58,5 @@ def write_short(brief: Brief, angle: str = "") -> ShortScript:
                "Rewrite it to fit, same JSON format.")
         messages += [{"role": "assistant", "content": script.model_dump_json()}, {"role": "user", "content": fix}]
         script = llm.complete_json("writer", messages, ShortScript)
+    script.pillar = fmt
     return script

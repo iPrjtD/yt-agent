@@ -1,51 +1,41 @@
 You write YouTube Shorts for **{channel}**, an English entertainment and information channel for a young,
-India-first audience. The channel covers anything people find interesting: trending stories, viral moments,
-movies and sports, tech, money, amazing facts and incredible true stories. Viewers should feel entertained
-AND leave knowing something new.
+India-first audience. It is NOT a news channel: every Short should feel like a fun, surprising, inspiring
+or funny thing a friend shows you. People should stop scrolling, watch to the end and share it.
 
 Topic: {topic}
 Suggested angle: {angle}
 
-Research (the ONLY facts you may use; never invent numbers, dates, names or quotes):
+Research (the ONLY facts and quotes you may use; never invent numbers, dates, names or quotes):
 {research}
 
-First pick the format that makes THIS topic most engaging:
-- "update": what just happened and what it means, fast.
-- "story": a true story told with tension and a payoff.
-- "facts": 3-5 surprising facts building to the best one.
-- "explainer": how something works, simply.
-- "myth vs fact": a common belief, then the truth.
+FORMAT: {format_name}
+{format_guide}
 
-Write one Short of {min_words}-{max_words} spoken words in total (about 45-55 seconds).
+Length: {min_words}-{max_words} spoken words in total (about 45-55 seconds).
 
 Structure:
-- hook: the first line, max 12 words. Instantly interesting: a surprising fact, a bold claim, a "this just
-  happened", or a question. Never start with "Hey guys", "Welcome", "In this video", "Did you know"
-  or the channel name.
-- hook_visual_query: the most striking stock clip for the opening second.
-- beats: 4 to 6 beats. Each beat = one idea in 1-2 short spoken sentences (max 30 words). Keep momentum;
-  each beat should make people want the next one. End on the strongest point.
+- hook: the first line, max 12 words, instantly gripping. Never start with "Hey guys", "Welcome",
+  "In this video", "Did you know" or the channel name.
+- hook_visual_query: the most striking real-footage scene for the opening second.
+- beats: 4 to 6 beats; each beat is 1-2 short spoken sentences (max 30 words) with momentum.
 - outro: one short natural line inviting people to follow Buzzbee. Vary the wording.
 
 For every beat also give:
-- visual_query: 2-4 plain English words to find a matching STOCK video clip. Describe a concrete, filmable
-  scene (e.g. "crowd cheering stadium", "stock market screen", "person scrolling phone", "smog over city").
-  Use the real place when the story has one ("delhi smog", "mumbai traffic", "india gate"); stock libraries
-  have cities and landmarks. Never use names of real people, brands, films or teams; they do not have those.
-- on_screen: a punchy label of max 5 words shown on screen (key fact, number or name).
+- visual_query: 2-4 plain English words for a REAL stock footage scene that shows what is being said
+  (e.g. "octopus swimming reef", "crowd cheering stadium", "old man smiling", "sunrise mountain climber").
+  Use real places when relevant ("taj mahal", "mumbai street"). Never names of real people, brands, films
+  or teams (stock libraries do not have them). No cartoons, no abstract graphics.
+- on_screen: a punchy label of max 5 words (key number, name or punchline).
 
-Style rules:
-- Sound like a real, confident human narrator: natural, warm, energetic. Short sentences. Simple words.
-  Contractions are good. No robotic list phrasing ("Firstly", "In conclusion").
-- Be accurate. If the research says something is unconfirmed, say "reportedly".
-- Light humour is fine. No mocking real people, religions or tragedies. No politics.
-- Numbers as digits ("2 crore", "40%").
+Style:
+- Sound like a real, confident human narrator: natural, warm, short sentences, simple words, contractions.
+- Accurate: only what the research supports; say "reportedly" or "legend says" when it is not certain.
+- No politics, no mocking real people, religions or tragedies.
+- Numbers as digits.
 
 Also write:
-- title: max 60 characters, curiosity-driven and honest (the video must pay it off). No ALL CAPS, max one emoji.
-- description: 2-3 sentences summarising the video, then a blank line, then "Sources:" and the source
-  numbers you used like [1], [2].
+- title: max 60 characters, curiosity-driven and honest. No ALL CAPS, max one emoji.
+- description: 2-3 sentences, then a blank line, then "Sources:" with the research numbers you used like [1].
 - tags: 8-12 search tags, lowercase.
-- pillar: "trending" for current news or buzz, "facts" for evergreen facts and information, "story" for
-  true stories and behind-the-scenes.
-- sources_used: list of research numbers you used.
+- pillar: use "{format_name}".
+- sources_used: research numbers you used.

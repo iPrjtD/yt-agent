@@ -36,6 +36,8 @@ PLAYLISTS = [
     PlaylistSpec("🐝 Buzz Check", "Everything people are talking about right now, in under a minute."),
     PlaylistSpec("🧠 Bee Curious", "Mind-blowing facts about science, space, history and the world around us."),
     PlaylistSpec("🎬 The Real Story", "Incredible true stories, mysteries and what really happened behind the scenes."),
+    PlaylistSpec("😂 Funny Buzz", "Funny facts, weird history and the most hilarious things on the planet."),
+    PlaylistSpec("🔥 Bee Inspired", "Real words and real stories from great people to fire you up."),
     PlaylistSpec("🔍 Buzz Deep Dives", "Our weekly longer videos on the biggest stories."),
     PlaylistSpec("Pending review", "Agent drafts waiting for owner review.", "private"),
     PlaylistSpec("Urgent review", "Time-sensitive agent drafts; review first.", "private"),

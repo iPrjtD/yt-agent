@@ -88,9 +88,17 @@ class PublishingCfg(BaseModel):
     contains_synthetic_media: bool = False
 
 
+class FormatCfg(BaseModel):
+    share: float
+    voice: str
+    speed: float = 1.05
+    music: str = ""
+
+
 class Settings(BaseModel):
     channel: ChannelCfg
     llm: LlmCfg
+    formats: dict[str, FormatCfg] = Field(default_factory=dict)
     trends: TrendsCfg
     voice: VoiceCfg = Field(default_factory=VoiceCfg)
     captions: CaptionsCfg = Field(default_factory=CaptionsCfg)

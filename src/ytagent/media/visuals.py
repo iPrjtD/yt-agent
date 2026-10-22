@@ -157,13 +157,97 @@ def find_photo(query: str, used: set[str]) -> Path | None:
     return None
 
 
-def find_visual(query: str, min_seconds: float, used: set[str]) -> Visual | None:
-    """Best real visual for a shot: a relevant video clip, else a relevant photo."""
+# --- NASA Image and Video Library (public domain; no endorsement may be implied) ---------------------------
+
+_SPACE = {"space", "planet", "star", "moon", "mar", "sun", "earth", "astronaut", "rocket", "nebula", "galaxy",
+          "black", "hole", "asteroid", "comet", "orbit", "saturn", "jupiter", "venus", "mercury", "universe",
+          "telescope", "satellite", "aurora", "eclipse", "cosmo", "spacecraft", "iss"}
+
+
+def find_nasa_photo(query: str, used: set[str]) -> Path | None:
+    if not _terms(query) & _SPACE:
+        return None
+    resp = httpx.get("https://images-api.nasa.gov/search", timeout=30,
+                     params={"q": query, "media_type": "image", "page_size": 20})
+    if resp.status_code >= 400:
+        return None
+    for item in resp.json().get("collection", {}).get("items", []):
+        data = item.get("data", [{}])[0]
+        nasa_id = data.get("nasa_id", "")
+        if not nasa_id or f"n{nasa_id}" in used:
+            continue
+        if not _terms(query) & _terms(" ".join([data.get("title", ""), *data.get("keywords", [])])):
+            continue
+        assets = httpx.get(f"https://images-api.nasa.gov/asset/{nasa_id}", timeout=30)
+        urls = [i["href"] for i in assets.json().get("collection", {}).get("items", [])] if assets.is_success else []
+        url = next((u for u in urls if "~large." in u), None) or next((u for u in urls if "~orig." in u), None)
+        path = _download(url.replace("http://", "https://"), _cache_dir() / f"nasa_{_safe(nasa_id)}.jpg") if url \
+            else None
+        if path:
+            used.add(f"n{nasa_id}")
+            log.info("nasa %s for %r (%s)", nasa_id, query, data.get("title"))
+            return path
+    return None
+
+
+# --- Wikimedia Commons (real people and places; public domain or CC BY / BY-SA with credit) ------------------
+
+_OK_LICENSES = re.compile(r"^(public domain|pd|cc0|cc by(-sa)? [\d.]+|no restrictions)", re.I)
+
+
+def _safe(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", text)[:80]
+
+
+def find_commons_photo(query: str, used: set[str], credits: list[str]) -> Path | None:
+    """A freely licensed photo; CC licences add an attribution line to `credits`."""
+    resp = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=30,
+                     headers={"User-Agent": "yt-agent/0.1 (https://github.com/iPrjtD)"},
+                     params={"action": "query", "generator": "search", "gsrsearch": f"{query} filetype:bitmap",
+                             "gsrnamespace": 6, "gsrlimit": 10, "prop": "imageinfo",
+                             "iiprop": "url|extmetadata|size", "iiurlwidth": 1440, "format": "json",
+                             "formatversion": 2})
+    if resp.status_code >= 400:
+        return None
+    pages = sorted(resp.json().get("query", {}).get("pages", []), key=lambda p: p.get("index", 99))
+    for page in pages:
+        info = (page.get("imageinfo") or [{}])[0]
+        meta = info.get("extmetadata", {})
+        license_name = meta.get("LicenseShortName", {}).get("value", "")
+        if f"c{page['pageid']}" in used or not _OK_LICENSES.match(license_name):
+            continue
+        if info.get("width", 0) < 800 or not _terms(query) & _terms(page["title"]):
+            continue
+        url = info.get("thumburl") or info.get("url")
+        path = _download(url, _cache_dir() / f"commons_{page['pageid']}.jpg") if url else None
+        if path:
+            used.add(f"c{page['pageid']}")
+            artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip() or "Unknown"
+            if not re.match(r"public domain|pd|cc0|no restrictions", license_name, re.I):
+                source = info.get("descriptionurl", "")
+                credits.append(f"Photo: {artist}, {license_name}, via Wikimedia Commons ({source})")
+            log.info("commons %s for %r (%s, %s)", page["title"], query, license_name, artist[:40])
+            return path
+    return None
+
+
+def find_visual(query: str, min_seconds: float, used: set[str], credits: list[str] | None = None,
+                person: str = "") -> Visual | None:
+    """Best real visual for a shot: the person's photo if asked, stock video, NASA, then photos."""
+    credits = credits if credits is not None else []
+    if person:
+        photo = find_commons_photo(person, used, credits)
+        if photo:
+            return Visual(photo, still=True)
     clip = find_clip(query, min_seconds, used)
     if clip:
         return Visual(clip, still=False)
-    photo = find_photo(query, used)
-    return Visual(photo, still=True) if photo else None
+    for finder in (lambda: find_nasa_photo(query, used), lambda: find_photo(query, used),
+                   lambda: find_commons_photo(query, used, credits)):
+        photo = finder()
+        if photo:
+            return Visual(photo, still=True)
+    return None
 
 
 def text_card(text: str, out: Path, size: tuple[int, int] = (1080, 1920), with_mascot: bool = True) -> Path:

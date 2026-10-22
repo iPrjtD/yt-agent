@@ -15,15 +15,20 @@ from ytagent.youtube import data_api
 
 log = logging.getLogger(__name__)
 
-CATEGORY = {"trending": "24", "story": "24", "facts": "27"}  # Entertainment / Education
-PLAYLIST = {"trending": "🐝 Buzz Check", "facts": "🧠 Bee Curious", "story": "🎬 The Real Story"}
+# YouTube categories: 22 People & Blogs, 23 Comedy, 24 Entertainment, 27 Education
+CATEGORY = {"facts": "27", "funny": "23", "motivation": "22", "story": "24", "trending": "24"}
+CATEGORY_NAME = {"22": "People & Blogs", "23": "Comedy", "24": "Entertainment", "27": "Education"}
+PLAYLIST = {"facts": "🧠 Bee Curious", "funny": "😂 Funny Buzz", "motivation": "🔥 Bee Inspired",
+            "story": "🎬 The Real Story", "trending": "🐝 Buzz Check"}
 HASHTAGS = "#shorts #buzzbee"
 
 
-def full_description(script: ShortScript, sources: list[Source]) -> str:
+def full_description(script: ShortScript, sources: list[Source], credits: list[str] | None = None) -> str:
     body = re.split(r"\n\s*Sources?:", script.description)[0].strip()
     used = [sources[i - 1] for i in script.sources_used if 0 < i <= len(sources)] or sources
     lines = [body, "", "Sources:"] + [f"- {s.url}" for s in used] if used else [body]
+    if credits:
+        lines += ["", "Credits:"] + [f"- {c}" for c in dict.fromkeys(credits)]
     return "\n".join([*lines, "", HASHTAGS])[:4900]
 
 
@@ -34,7 +39,7 @@ def write_package(work: Path, script: ShortScript, description: str) -> Path:
         f"TITLE\n{script.title}\n\n"
         f"DESCRIPTION\n{description}\n\n"
         f"TAGS\n{', '.join(script.tags)}\n\n"
-        f"SETTINGS\n- Category: {'Education' if CATEGORY[script.pillar] == '27' else 'Entertainment'}\n"
+        f"SETTINGS\n- Category: {CATEGORY_NAME[CATEGORY[script.pillar]]}\n"
         f"- Audience: No, it's not made for kids\n"
         f"- Altered or synthetic content: {synthetic}\n"
         f"- Playlist: {PLAYLIST[script.pillar]}\n",

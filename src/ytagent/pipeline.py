@@ -7,6 +7,7 @@ import logging
 import math
 import re
 import shutil
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from ytagent.media.visuals import find_visual, text_card
 from ytagent.media.voice import narrate
 from ytagent.models import Topic, Video
 from ytagent.publish import full_description, upload_private, write_package
-from ytagent.research import Brief, Source, build_brief
+from ytagent.research import Brief, Source, build_format_brief
 from ytagent.script import ShortScript, write_short
 
 log = logging.getLogger(__name__)
@@ -41,24 +42,44 @@ def _previous_attempt(work: Path) -> Path | None:
     return None
 
 
-def pick_topic(topic_id: int | None) -> Topic:
+def _format_of(topic: Topic) -> str:
+    fmt = topic.llm.get("content_format") or ("motivation" if " on " in topic.title else "facts")
+    return fmt if fmt in get_settings().formats else "facts"
+
+
+def pick_topic(topic_id: int | None, fmt: str | None = None) -> tuple[Topic, str]:
+    """Explicit topic, else the best topic of the format furthest below its target share of recent videos."""
+    formats = get_settings().formats
     with session_scope() as s:
         if topic_id:
             topic = s.get(Topic, topic_id)
             if topic is None:
                 raise ValueError(f"topic {topic_id} not found")
-            return topic
-        topic = s.scalar(
-            select(Topic).where(Topic.status == "scored", Topic.llm["best_format"].astext.in_(["short", "both"]))
-            .order_by(Topic.score.desc()).limit(1))
-        if topic is None:
-            raise ValueError("no scored topic available: run `ytagent trends run` first")
-        return topic
+            return topic, fmt or _format_of(topic)
+        recent = s.scalars(select(Video).where(Video.status != "failed").order_by(Video.id.desc()).limit(20)).all()
+        counts = Counter(v.script.get("pillar") for v in recent if v.script)
+        total = max(1, sum(counts.values()))
+        order = [fmt] if fmt else sorted(formats, key=lambda f: counts[f] / total - formats[f].share)
+        for want in order:
+            topic = s.scalar(
+                select(Topic).where(Topic.status == "scored", Topic.llm["content_format"].astext == want,
+                                    Topic.llm["best_format"].astext.in_(["short", "both"]))
+                .order_by(Topic.score.desc()).limit(1))
+            if topic:
+                return topic, want
+        raise ValueError("no scored topic available: run `ytagent trends run` first")
 
 
-def make_short(topic_id: int | None = None, upload: bool | None = None) -> dict:
+def _person(topic: Topic) -> str:
+    """For motivation topics titled '<person> on <theme>'."""
+    return topic.title.rsplit(" on ", 1)[0] if " on " in topic.title else ""
+
+
+def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str | None = None) -> dict:
     settings = get_settings()
-    topic = pick_topic(topic_id)
+    topic, fmt = pick_topic(topic_id, fmt)
+    style = settings.formats.get(fmt)
+    person = _person(topic) if fmt == "motivation" else ""
     with session_scope() as s:
         video = Video(topic_id=topic.id, format="short", status="rendering")
         s.add(video)
@@ -75,18 +96,18 @@ def make_short(topic_id: int | None = None, upload: bool | None = None) -> dict:
             brief = Brief(topic.title, [Source(**x) for x in json.loads((previous / "brief.json").read_text("utf-8"))])
             script = ShortScript.model_validate_json((previous / "script.json").read_text("utf-8"))
         else:
-            brief = build_brief(topic.title, topic.urls)
-            script = write_short(brief, angle=topic.llm.get("angle", ""))
+            brief = build_format_brief(topic.title, fmt, person=person, context_urls=topic.urls)
+            script = write_short(brief, fmt=fmt, angle=topic.llm.get("angle", ""))
         (work / "brief.json").write_text(json.dumps([asdict(x) for x in brief.sources], indent=2), encoding="utf-8")
         (work / "script.json").write_text(script.model_dump_json(indent=2), encoding="utf-8")
 
         lines = script.lines()
-        narration = narrate(lines, work)
+        narration = narrate(lines, work, voice=style.voice if style else None, speed=style.speed if style else None)
         starts = [0.0] + [start for start, _ in narration.spans[1:]]
         ends = starts[1:] + [narration.duration + 0.35]
         queries = [script.hook_visual_query or script.beats[0].visual_query] + [b.visual_query for b in script.beats]
         on_screen = [""] + [b.on_screen for b in script.beats]
-        segments, labels, used = [], [], set()
+        segments, labels, used, credits = [], [], set(), []
         for i, (start, end) in enumerate(zip(starts, ends, strict=True)):
             duration = end - start
             if i == len(lines) - 1:  # outro: branded end card
@@ -98,7 +119,9 @@ def make_short(topic_id: int | None = None, upload: bool | None = None) -> dict:
             shots = max(1, math.ceil(duration / SHOT_SECONDS))
             for k in range(shots):
                 shot_len = duration / shots
-                visual = find_visual(queries[i], shot_len, used)
+                # Motivation: open on a real photo of the person.
+                who = person if (i == 0 and k == 0) else ""
+                visual = find_visual(queries[i], shot_len, used, credits, person=who)
                 if visual is None and k > 0:  # nothing else relevant: stretch the previous shot instead
                     segments[-1].duration += shot_len
                     continue
@@ -108,10 +131,10 @@ def make_short(topic_id: int | None = None, upload: bool | None = None) -> dict:
                 else:
                     segments.append(Segment(visual.path, shot_len, still=visual.still))
 
-        music = pick_music(video_id)
+        music = pick_music(video_id, style.music if style else "")
         final = render_short(segments, narration.wav, narration.words, work, labels, music)
         problems = qa(final)
-        description = full_description(script, brief.sources)
+        description = full_description(script, brief.sources, credits)
         write_package(work, script, description)
 
         mode = settings.publishing.mode

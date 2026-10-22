@@ -285,7 +285,17 @@ def build_sources(settings) -> list[TrendSource]:
     def on(name: str) -> bool:
         return bool(cfg.get(name, {}).get("enabled"))
 
+    from ytagent.trends.ideas import EvergreenIdeas, Motivation, WikipediaDYK
+
     sources: list[TrendSource] = []
+    if on("wikipedia_dyk"):
+        sources.append(WikipediaDYK())
+    if on("evergreen"):
+        e = cfg["evergreen"]
+        sources.append(EvergreenIdeas(categories=e.get("categories", []), per_run=e.get("per_run", 8)))
+    if on("motivation"):
+        m = cfg["motivation"]
+        sources.append(Motivation(people=m.get("people", []), per_run=m.get("per_run", 2)))
     if on("google_trends"):
         sources.append(GoogleTrends(geo=ch.geo))
     if on("google_news"):

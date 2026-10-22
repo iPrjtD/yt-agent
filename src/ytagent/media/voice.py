@@ -90,12 +90,13 @@ def align_words(lines: list[str], spans: list[tuple[float, float]],
     return words
 
 
-def narrate(lines: list[str], out_dir: Path) -> Narration:
+def narrate(lines: list[str], out_dir: Path, voice: str | None = None, speed: float | None = None) -> Narration:
     cfg = get_settings().voice
+    voice, speed = voice or cfg.voice, speed or cfg.speed
     kokoro = _kokoro()
     chunks, spans, t, sr = [], [], 0.0, 24000
     for line in lines:
-        samples, sr = kokoro.create(line, voice=cfg.voice, speed=cfg.speed, lang="en-us")
+        samples, sr = kokoro.create(line, voice=voice, speed=speed, lang="en-us")
         samples = np.trim_zeros(samples, "fb")
         dur = len(samples) / sr
         spans.append((t, t + dur))

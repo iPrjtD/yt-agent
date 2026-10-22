@@ -17,6 +17,7 @@ from ytagent.providers import llm
 log = logging.getLogger(__name__)
 
 SIGNAL_WINDOW = timedelta(hours=48)
+IDEA_SOURCES = {"wikipedia_dyk", "evergreen", "motivation"}
 
 
 class TopicAssessment(BaseModel):
@@ -27,6 +28,7 @@ class TopicAssessment(BaseModel):
     sensitive: bool
     blocked: bool
     evergreen: bool
+    content_format: Literal["facts", "funny", "motivation", "story", "trending"] | None = None
     best_format: Literal["short", "long", "both"]
     angle: str
 
@@ -58,7 +60,7 @@ def combine(h: dict[str, float], assessment: TopicAssessment | None, settings: S
 
 def assess(topic: Topic, signals: list[TrendSignal], settings: Settings) -> TopicAssessment:
     ch = settings.channel
-    channel_desc = ("covers: " + ", ".join(ch.niches)) if ch.niches else "covers broad trending topics"
+    channel_desc = "; ".join(ch.niches) if ch.niches else "broad entertainment and information"
     context = " | ".join(dict.fromkeys(s.raw.get("context", "") for s in signals if s.raw.get("context")))
     prompt = (ROOT / "prompts" / "topic_assess.md").read_text(encoding="utf-8").format(
         channel_desc=channel_desc, geo=ch.geo, language=ch.language,
@@ -85,7 +87,8 @@ def score_topics(s: Session, settings: Settings, llm_limit: int = 20) -> dict[st
         ranked.append((combine(h, assessment, settings), topic, recent, h))
 
     assessed = rejected = 0
-    ranked.sort(key=lambda r: r[0], reverse=True)
+    # Evergreen ideas first (the channel's core content), then everything else by provisional score.
+    ranked.sort(key=lambda r: (any(sig.source in IDEA_SOURCES for sig in r[2]), r[0]), reverse=True)
     for provisional, topic, recent, h in ranked:
         assessment = TopicAssessment(**topic.llm) if topic.llm else None
         if assessment is None and assessed < llm_limit:

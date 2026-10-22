@@ -29,3 +29,9 @@ Thumbs.db
 
 # Downloaded model weights
 models/
+
+# Music files (downloaded locally)
+assets/music/**/*.mp3
+assets/music/**/*.wav
+assets/music/**/*.m4a
+assets/music/**/*.ogg
