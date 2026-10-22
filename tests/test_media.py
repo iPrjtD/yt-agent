@@ -47,7 +47,7 @@ def test_clip_relevance_uses_tag_overlap():
 
 
 def test_full_description_lists_used_sources():
-    script = ShortScript(title="t", hook="h", beats=[Beat(narration="n", visual_query="q", on_screen="o")] * 3,
+    script = ShortScript(title="t", hook="h", hook_visual_query="q", beats=[Beat(narration="n", visual_query="q", on_screen="o")] * 3,
                          outro="o", description="Why it matters.\n\nSources: [2]", tags=["a"], pillar="facts",
                          sources_used=[2])
     sources = [Source("A", "https://a.example", "x"), Source("B", "https://b.example", "y")]

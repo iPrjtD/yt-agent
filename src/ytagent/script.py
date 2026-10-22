@@ -25,7 +25,7 @@ class Beat(BaseModel):
 class ShortScript(BaseModel):
     title: str = Field(max_length=100)
     hook: str
-    hook_visual_query: str = ""
+    hook_visual_query: str
     beats: list[Beat] = Field(min_length=3, max_length=7)
     outro: str
     description: str
@@ -58,5 +58,34 @@ def write_short(brief: Brief, fmt: str = "facts", angle: str = "") -> ShortScrip
                "Rewrite it to fit, same JSON format.")
         messages += [{"role": "assistant", "content": script.model_dump_json()}, {"role": "user", "content": fix}]
         script = llm.complete_json("writer", messages, ShortScript)
+    script = fact_check(script, brief, messages)
     script.pillar = fmt
     return script
+
+
+class Issue(BaseModel):
+    line: int = Field(description="index of the spoken line (0 = hook)")
+    problem: str
+
+
+class FactCheck(BaseModel):
+    issues: list[Issue]
+
+
+def fact_check(script: ShortScript, brief: Brief, messages: list[dict]) -> ShortScript:
+    """Flag spoken lines not supported by the research; have the writer fix them once."""
+    numbered = "\n".join(f"{i}: {line}" for i, line in enumerate(script.lines()))
+    prompt = (f"Research:\n{brief.as_prompt()}\n\nScript lines:\n{numbered}\n\n"
+              "List every line that states a fact, number, date, name or quote that the research does NOT "
+              "support, or that exaggerates it. Opinions, questions, jokes and the follow invitation are fine. "
+              "Quotes must match the research word for word. Return an empty list if everything is supported.")
+    issues = llm.complete_json("fast", [{"role": "user", "content": prompt}], FactCheck).issues
+    if not issues:
+        return script
+    log.info("fact check: %d issue(s): %s", len(issues), "; ".join(f"{i.line}: {i.problem}" for i in issues))
+    fix = ("A fact check found problems:\n" + "\n".join(f"- line {i.line}: {i.problem}" for i in issues)
+           + "\nRewrite the script so every claim is supported by the research (keep length and format), "
+             "same JSON format.")
+    messages = [*messages, {"role": "assistant", "content": script.model_dump_json()},
+                {"role": "user", "content": fix}]
+    return llm.complete_json("writer", messages, ShortScript)

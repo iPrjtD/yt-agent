@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw
 
 from ytagent import brand
 from ytagent.config import get_settings
+from ytagent.trends.base import USER_AGENT
 
 log = logging.getLogger(__name__)
 
@@ -92,8 +93,9 @@ def relevance(query: str, hit: dict) -> int:
 
 
 def _needed(query: str) -> int:
-    """Tag overlap required: 2 when the query has 2+ meaningful words, so one generic word can't match."""
-    return min(2, len(_terms(query))) or 1
+    """Tag overlap required: about half the meaningful words (min 1, max 3), so generic words can't carry a match."""
+    n = len(_terms(query))
+    return max(1, min(3, (n + 1) // 2 if n >= 4 else min(2, n)))
 
 
 def _download(url: str, path: Path, attempts: int = 3) -> Path | None:
@@ -103,7 +105,8 @@ def _download(url: str, path: Path, attempts: int = 3) -> Path | None:
     tmp = path.with_suffix(path.suffix + ".part")
     for attempt in range(attempts):
         try:
-            with httpx.stream("GET", url, timeout=120, follow_redirects=True) as resp:
+            # Wikimedia rejects requests without a descriptive User-Agent (403).
+            with httpx.stream("GET", url, timeout=120, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as resp:
                 resp.raise_for_status()
                 with tmp.open("wb") as fh:
                     for chunk in resp.iter_bytes():

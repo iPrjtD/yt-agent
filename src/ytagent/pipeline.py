@@ -94,7 +94,9 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         if previous:
             log.info("reusing brief and script from %s", previous.name)
             brief = Brief(topic.title, [Source(**x) for x in json.loads((previous / "brief.json").read_text("utf-8"))])
-            script = ShortScript.model_validate_json((previous / "script.json").read_text("utf-8"))
+            saved = json.loads((previous / "script.json").read_text("utf-8"))
+            saved.setdefault("hook_visual_query", "")
+            script = ShortScript.model_validate(saved)
         else:
             brief = build_format_brief(topic.title, fmt, person=person, context_urls=topic.urls)
             script = write_short(brief, fmt=fmt, angle=topic.llm.get("angle", ""))
