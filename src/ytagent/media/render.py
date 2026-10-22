@@ -25,8 +25,17 @@ WHITE_ASS = "&H00FFFFFF&"
 class Segment:
     source: Path          # video clip or still image
     duration: float
-    label: str = ""       # short on-screen label shown at the top
     still: bool = False
+
+
+MUSIC_DIR = FONTS.parent / "music"
+MUSIC_VOLUME = 0.10  # music bed level under the voice (before loudness normalisation)
+
+
+def pick_music(seed: int) -> Path | None:
+    """A royalty-free track from assets/music (e.g. YouTube Audio Library downloads), rotated by video id."""
+    tracks = sorted(p for p in MUSIC_DIR.glob("*") if p.suffix.lower() in {".mp3", ".wav", ".m4a", ".ogg"})
+    return tracks[seed % len(tracks)] if tracks else None
 
 
 def ffmpeg(args: list[str], cwd: Path | None = None) -> None:
@@ -83,8 +92,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Poppins ExtraBold,96,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,7,3,2,60,60,640,1
-Style: Label,Poppins Black,62,&H0000C3FF,&H0000C3FF,&H00141414,&H00141414,0,0,0,0,100,100,0,0,3,16,0,8,80,80,300,1
+Style: Caption,Poppins ExtraBold,118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,9,4,2,50,50,600,1
+Style: Label,Poppins Black,74,&H0000C3FF,&H0000C3FF,&H00141414,&H00141414,0,0,0,0,100,100,0,0,3,18,0,8,70,70,310,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -110,7 +119,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 def _segment(seg: Segment, out: Path, width: int, height: int, fps: int) -> None:
     if seg.still:
         frames = max(1, round(seg.duration * fps))
-        vf = (f"scale={width * 2}:{height * 2},zoompan=z='min(zoom+0.0006,1.06)':d={frames}"
+        # Cover-crop to 9:16 at 2x, then a slow Ken Burns zoom (photos and cards).
+        vf = (f"scale={width * 2}:{height * 2}:force_original_aspect_ratio=increase,crop={width * 2}:{height * 2},"
+              f"zoompan=z='min(zoom+0.0007,1.08)':d={frames}"
               f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={width}x{height}:fps={fps},format=yuv420p")
         ffmpeg(["-loop", "1", "-i", str(seg.source), "-t", f"{seg.duration:.3f}", "-vf", vf, "-an",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", str(out)])
@@ -121,7 +132,8 @@ def _segment(seg: Segment, out: Path, width: int, height: int, fps: int) -> None
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", str(out)])
 
 
-def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], work: Path) -> Path:
+def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], work: Path,
+                 labels: list[tuple[float, float, str]], music: Path | None = None) -> Path:
     cfg = get_settings().video
     w, h, fps = cfg.width, cfg.height, cfg.fps
     parts = []
@@ -132,21 +144,28 @@ def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], wo
     (work / "concat.txt").write_text("".join(f"file '{p.name}'\n" for p in parts), encoding="utf-8")
     ffmpeg(["-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "video_only.mp4"], cwd=work)
 
-    t, labels = 0.0, []
-    for seg in segments:
-        labels.append((t + 0.15, t + seg.duration - 0.1, seg.label))
-        t += seg.duration
+    total = sum(seg.duration for seg in segments)
     (work / "captions.ass").write_text(build_ass(words, labels, w, h), encoding="utf-8")
     fonts = work / "fonts"
     shutil.copytree(FONTS, fonts, dirs_exist_ok=True)
     shutil.copy(BRAND_DIR / "mascot.png", work / "mascot.png")
-    shutil.copy(voice_wav, work / "voice.wav")
+    if voice_wav.resolve() != (work / "voice.wav").resolve():
+        shutil.copy(voice_wav, work / "voice.wav")
 
-    graph = ("[2:v]scale=200:-1[m];[0:v][m]overlay=36:90[v1];"
-             "[v1]ass=captions.ass:fontsdir=fonts[v];"
-             "[1:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]")
+    inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-i", "mascot.png"]
+    graph = ("[2:v]scale=170:-1[m];[0:v][m]overlay=36:90[v1];"
+             "[v1]ass=captions.ass:fontsdir=fonts[v];")
+    if music:
+        shutil.copy(music, work / f"music{music.suffix}")
+        inputs += ["-stream_loop", "-1", "-i", f"music{music.suffix}"]
+        fade_at = max(0.0, total - 1.5)
+        graph += (f"[3:a]volume={MUSIC_VOLUME},afade=t=in:d=0.5,afade=t=out:st={fade_at:.2f}:d=1.5[bg];"
+                  "[1:a][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,"
+                  "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]")
+    else:
+        graph += "[1:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]"
     final = work / "final.mp4"
-    ffmpeg(["-i", "video_only.mp4", "-i", "voice.wav", "-i", "mascot.png", "-filter_complex", graph,
+    ffmpeg([*inputs, "-filter_complex", graph,
             "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "medium", "-crf", "20",
             "-pix_fmt", "yuv420p", "-r", str(fps), "-c:a", "aac", "-b:a", "192k", "-shortest",
             "-movflags", "+faststart", final.name], cwd=work)

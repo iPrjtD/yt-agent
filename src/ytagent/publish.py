@@ -15,8 +15,9 @@ from ytagent.youtube import data_api
 
 log = logging.getLogger(__name__)
 
-CATEGORY = {"trending": "24", "story": "24", "curious": "27"}  # Entertainment / Education
-HASHTAGS = "#shorts #buzzbee #explained"
+CATEGORY = {"trending": "24", "story": "24", "facts": "27"}  # Entertainment / Education
+PLAYLIST = {"trending": "🐝 Buzz Check", "facts": "🧠 Bee Curious", "story": "🎬 The Real Story"}
+HASHTAGS = "#shorts #buzzbee"
 
 
 def full_description(script: ShortScript, sources: list[Source]) -> str:
@@ -36,7 +37,7 @@ def write_package(work: Path, script: ShortScript, description: str) -> Path:
         f"SETTINGS\n- Category: {'Education' if CATEGORY[script.pillar] == '27' else 'Entertainment'}\n"
         f"- Audience: No, it's not made for kids\n"
         f"- Altered or synthetic content: {synthetic}\n"
-        f"- Playlist: {'🧠 Bee Curious' if script.pillar == 'curious' else '🐝 Buzz Check'}\n",
+        f"- Playlist: {PLAYLIST[script.pillar]}\n",
         encoding="utf-8")
     return pkg
 

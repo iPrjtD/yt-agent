@@ -25,11 +25,12 @@ class Beat(BaseModel):
 class ShortScript(BaseModel):
     title: str = Field(max_length=100)
     hook: str
+    hook_visual_query: str = ""
     beats: list[Beat] = Field(min_length=3, max_length=7)
     outro: str
     description: str
     tags: list[str]
-    pillar: Literal["trending", "curious", "story"]
+    pillar: Literal["trending", "facts", "story"]
     sources_used: list[int] = Field(default_factory=list)
 
     def lines(self) -> list[str]:
@@ -43,7 +44,7 @@ class ShortScript(BaseModel):
 def write_short(brief: Brief, angle: str = "") -> ShortScript:
     ch = get_settings().channel
     prompt = (ROOT / "prompts" / "short_script.md").read_text(encoding="utf-8").format(
-        channel=ch.name, tagline=ch.tagline, topic=brief.topic, angle=angle or "explain why people care",
+        channel=ch.name, topic=brief.topic, angle=angle or "whatever makes it most interesting",
         research=brief.as_prompt() or "(no sources found: only use widely known, non-controversial facts)",
         min_words=MIN_WORDS, max_words=MAX_WORDS,
     )

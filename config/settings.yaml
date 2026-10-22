@@ -8,12 +8,12 @@ channel:
   youtube_channel_id: UCzODU-zkEJBaUqBcUwBzoig
   language: en          # en | hi | bn ... (drives TTS voice and script language)
   geo: IN               # ISO country code for trend sources
-  # One promise across all topics: every video explains the WHY behind something people care about.
-  # Pillars (target mix): trending explained 40%, evergreen curiosity 40%, real story behind 20%.
+  # Broad entertainment + information channel, no single domain. Pillars (target mix):
+  # trending 40%, amazing facts 35%, incredible stories 25%.
   niches:
-    - "trending explained: why a movie, show, celebrity moment, viral video, cricket/sports moment, tech launch or business story is everywhere right now"
-    - "evergreen curiosity: psychology, money and personal finance, science, AI and technology, everyday 'why does this happen' questions"
-    - "the real story behind famous brands, movies, songs, inventions and internet moments"
+    - "trending now: viral moments, movies, OTT and celebrity buzz, cricket and sports, tech and gadget launches, business and money stories"
+    - "amazing facts and information: science, space, history, nature, psychology, inventions, world records, how things work"
+    - "incredible stories: true stories, mysteries, rise and fall of famous brands and people, behind-the-scenes moments"
   # Never make content about these, regardless of score.
   blocked_topics:
     - graphic violence or tragedies involving victims

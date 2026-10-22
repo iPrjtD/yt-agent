@@ -34,12 +34,24 @@ def test_build_ass_highlights_current_word():
     assert "HELLO {\\c&H0000C3FF&}BUZZ" in ass
 
 
+def test_clip_relevance_uses_tag_overlap():
+    from ytagent.media.visuals import relevance
+
+    smog = {"tags": "smog, city, pollution, haze"}
+    dog = {"tags": "dog, pet, animal, looking"}
+    assert relevance("person looking at smoggy sky", dog) == 0
+    assert relevance("smoggy city skyline", smog) >= 1
+    assert relevance("cities in smog", smog) == 1  # plural "cities" does not match "city"; "smog" does
+    assert relevance("street sweeper broom", {"tags": "broom, sweeper, cartoon, woman"}) == 0
+    assert relevance("cartoon broom", {"tags": "broom, cartoon"}) == 2  # asked for, so allowed
+
+
 def test_full_description_lists_used_sources():
     script = ShortScript(title="t", hook="h", beats=[Beat(narration="n", visual_query="q", on_screen="o")] * 3,
-                         outro="o", description="Why it matters.\n\nSources: [2]", tags=["a"], pillar="curious",
+                         outro="o", description="Why it matters.\n\nSources: [2]", tags=["a"], pillar="facts",
                          sources_used=[2])
     sources = [Source("A", "https://a.example", "x"), Source("B", "https://b.example", "y")]
     desc = full_description(script, sources)
     assert desc.startswith("Why it matters.")
     assert "- https://b.example" in desc and "a.example" not in desc
-    assert desc.endswith("#shorts #buzzbee #explained")
+    assert desc.endswith("#shorts #buzzbee")

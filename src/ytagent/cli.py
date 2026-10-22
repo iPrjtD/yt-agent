@@ -76,7 +76,7 @@ console = Console()
 def main(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    for noisy in ("httpx", "LiteLLM", "litellm"):
+    for noisy in ("httpx", "LiteLLM", "litellm", "phonemizer"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

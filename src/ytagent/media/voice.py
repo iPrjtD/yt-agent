@@ -105,7 +105,10 @@ def narrate(lines: list[str], out_dir: Path) -> Narration:
     wav = out_dir / "voice.wav"
     _write_wav(wav, audio, sr)
 
-    segments, _ = _whisper().transcribe(str(wav), language="en", word_timestamps=True,
+    # Pass samples (16 kHz float32) instead of the file: faster-whisper's file decoding breaks on newer PyAV.
+    n16 = int(len(audio) * 16000 / sr)
+    audio16 = np.interp(np.linspace(0, len(audio), n16, endpoint=False), np.arange(len(audio)), audio)
+    segments, _ = _whisper().transcribe(audio16.astype(np.float32), language="en", word_timestamps=True,
                                         initial_prompt=" ".join(lines)[:800], vad_filter=False)
     heard = [(w.word.strip(), w.start, w.end) for seg in segments for w in (seg.words or [])]
     words = align_words(lines, spans, heard)

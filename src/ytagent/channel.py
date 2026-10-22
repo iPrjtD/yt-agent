@@ -33,10 +33,10 @@ class PlaylistSpec:
 
 
 PLAYLISTS = [
-    PlaylistSpec("🐝 Buzz Check", "The stories everyone is talking about, explained in under a minute."),
-    PlaylistSpec("🧠 Bee Curious", "Psychology, money, science and AI: the \"why\" behind everyday things."),
-    PlaylistSpec("🎬 The Real Story", "How famous brands, movies, songs and internet moments really happened."),
-    PlaylistSpec("🔍 Buzz Deep Dives", "Our weekly long explainers on the biggest stories."),
+    PlaylistSpec("🐝 Buzz Check", "Everything people are talking about right now, in under a minute."),
+    PlaylistSpec("🧠 Bee Curious", "Mind-blowing facts about science, space, history and the world around us."),
+    PlaylistSpec("🎬 The Real Story", "Incredible true stories, mysteries and what really happened behind the scenes."),
+    PlaylistSpec("🔍 Buzz Deep Dives", "Our weekly longer videos on the biggest stories."),
     PlaylistSpec("Pending review", "Agent drafts waiting for owner review.", "private"),
     PlaylistSpec("Urgent review", "Time-sensitive agent drafts; review first.", "private"),
     PlaylistSpec("Approved", "Owner-approved drafts; the agent schedules these.", "private"),
@@ -146,7 +146,15 @@ def create_playlists(yt, report: Report, dry_run: bool) -> dict[str, str]:
     ids = {}
     for spec in PLAYLISTS:
         if spec.title in existing:
-            ids[spec.title] = existing[spec.title]["id"]
+            current = existing[spec.title]
+            ids[spec.title] = current["id"]
+            if current["snippet"].get("description", "") != spec.description:
+                if dry_run:
+                    report.add(f"playlists: would update description of {spec.title!r}")
+                else:
+                    yt.playlists().update(part="snippet", body={"id": current["id"], "snippet": {
+                        "title": spec.title, "description": spec.description, "defaultLanguage": "en"}}).execute()
+                    report.add(f"playlists: updated description of {spec.title!r}")
             continue
         if dry_run:
             report.add(f"playlists: would create {spec.title!r} ({spec.privacy})")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import shutil
 from dataclasses import asdict
@@ -13,21 +14,31 @@ from sqlalchemy import select
 
 from ytagent.config import get_settings
 from ytagent.db import session_scope
-from ytagent.media.render import Segment, qa, render_short
-from ytagent.media.visuals import find_clip, text_card
+from ytagent.media.render import Segment, pick_music, qa, render_short
+from ytagent.media.visuals import find_visual, text_card
 from ytagent.media.voice import narrate
 from ytagent.models import Topic, Video
 from ytagent.publish import full_description, upload_private, write_package
-from ytagent.research import build_brief
-from ytagent.script import write_short
+from ytagent.research import Brief, Source, build_brief
+from ytagent.script import ShortScript, write_short
 
 log = logging.getLogger(__name__)
 
 OUTRO_CARD = "Follow for more buzz"
+SHOT_SECONDS = 4.0
 
 
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "short"
+
+
+def _previous_attempt(work: Path) -> Path | None:
+    """An earlier folder for the same topic that already has a brief and script (resume after a failure)."""
+    slug = work.name.split("-", 1)[1]
+    for folder in sorted(work.parent.glob(f"*-{slug}"), reverse=True):
+        if folder != work and (folder / "script.json").exists() and (folder / "brief.json").exists():
+            return folder
+    return None
 
 
 def pick_topic(topic_id: int | None) -> Topic:
@@ -58,32 +69,47 @@ def make_short(topic_id: int | None = None, upload: bool | None = None) -> dict:
     log.info("short %d: %r -> %s", video_id, topic.title, work)
 
     try:
-        brief = build_brief(topic.title, topic.urls)
+        previous = _previous_attempt(work)
+        if previous:
+            log.info("reusing brief and script from %s", previous.name)
+            brief = Brief(topic.title, [Source(**x) for x in json.loads((previous / "brief.json").read_text("utf-8"))])
+            script = ShortScript.model_validate_json((previous / "script.json").read_text("utf-8"))
+        else:
+            brief = build_brief(topic.title, topic.urls)
+            script = write_short(brief, angle=topic.llm.get("angle", ""))
         (work / "brief.json").write_text(json.dumps([asdict(x) for x in brief.sources], indent=2), encoding="utf-8")
-        script = write_short(brief, angle=topic.llm.get("angle", ""))
         (work / "script.json").write_text(script.model_dump_json(indent=2), encoding="utf-8")
 
         lines = script.lines()
         narration = narrate(lines, work)
         starts = [0.0] + [start for start, _ in narration.spans[1:]]
         ends = starts[1:] + [narration.duration + 0.35]
-        queries = [script.beats[0].visual_query] + [b.visual_query for b in script.beats]
-        labels = [""] + [b.on_screen for b in script.beats]
-        segments, used = [], set()
+        queries = [script.hook_visual_query or script.beats[0].visual_query] + [b.visual_query for b in script.beats]
+        on_screen = [""] + [b.on_screen for b in script.beats]
+        segments, labels, used = [], [], set()
         for i, (start, end) in enumerate(zip(starts, ends, strict=True)):
             duration = end - start
-            if i == len(lines) - 1:  # outro: branded card
+            if i == len(lines) - 1:  # outro: branded end card
                 card = text_card(OUTRO_CARD, work / "card_outro.png")
                 segments.append(Segment(card, duration, still=True))
                 continue
-            clip = find_clip(queries[i], duration, used)
-            if clip is None:
-                card = text_card(labels[i] or script.title, work / f"card_{i:02d}.png")
-                segments.append(Segment(card, duration, still=True))
-            else:
-                segments.append(Segment(clip, duration, label=labels[i]))
+            labels.append((start + 0.15, end - 0.1, on_screen[i]))
+            # A new shot every ~4 s keeps it feeling like a real edit; extra shots reuse the line's query.
+            shots = max(1, math.ceil(duration / SHOT_SECONDS))
+            for k in range(shots):
+                shot_len = duration / shots
+                visual = find_visual(queries[i], shot_len, used)
+                if visual is None and k > 0:  # nothing else relevant: stretch the previous shot instead
+                    segments[-1].duration += shot_len
+                    continue
+                if visual is None:
+                    card = text_card(on_screen[i] or script.title, work / f"card_{i:02d}.png", with_mascot=False)
+                    segments.append(Segment(card, shot_len, still=True))
+                else:
+                    segments.append(Segment(visual.path, shot_len, still=visual.still))
 
-        final = render_short(segments, narration.wav, narration.words, work)
+        music = pick_music(video_id)
+        final = render_short(segments, narration.wav, narration.words, work, labels, music)
         problems = qa(final)
         description = full_description(script, brief.sources)
         write_package(work, script, description)
@@ -97,7 +123,7 @@ def make_short(topic_id: int | None = None, upload: bool | None = None) -> dict:
             s.get(Video, video_id).status = "failed"
         raise
     finally:
-        for tmp in [*work.glob("seg_*.mp4"), work / "video_only.mp4", work / "concat.txt"]:
+        for tmp in [*work.glob("seg_*.mp4"), *work.glob("music.*"), work / "video_only.mp4", work / "concat.txt"]:
             tmp.unlink(missing_ok=True)
         shutil.rmtree(work / "fonts", ignore_errors=True)
 

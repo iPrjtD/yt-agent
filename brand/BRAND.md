@@ -3,10 +3,10 @@
 | | |
 |---|---|
 | Name | **Buzzbee** |
-| Handle | **@buzzbee** |
+| Handle | **@buzzbee-0** |
 | Tagline | **All the buzz, explained.** |
 | Language | English (India-first, global) |
-| Promise | Every video explains the *why* behind something people are talking about |
+| Promise | The most interesting things on the internet, every day: entertaining, informative, real |
 
 ## Assets (`uv run ytagent brand render` regenerates them)
 
@@ -15,7 +15,7 @@
 | `profile_picture.png` | 800×800 | YouTube Studio → Customization → Branding → Picture |
 | `banner.png` | 2560×1440, content inside the 1546×423 safe area | Banner image |
 | `watermark.png` | 150×150, transparent | Video watermark |
-| `mascot.png` | 1024×1024, transparent | Thumbnails, intros, end screens, community posts |
+| `mascot.png` | 1024×1024, transparent | Thumbnails, end cards, community posts |
 
 ## Colours
 
@@ -30,73 +30,62 @@
 
 ## Type
 
-Poppins (SIL Open Font Licence, bundled in `assets/fonts`): Black for titles and thumbnails, SemiBold for captions, Medium for small text.
+Poppins (SIL Open Font Licence, bundled in `assets/fonts`): Black for titles and thumbnails, ExtraBold for
+captions, Medium for small text.
 
-## Voice
+## Look and voice
 
-- Curious, quick, friendly; explains like a smart friend, never like a news anchor.
-- Hook in the first 2 seconds, payoff by the end, one clear idea per Short.
+- Real footage first, fast cuts (a new shot every 3-5 seconds), bold word-by-word captions, a light music bed.
+- Narration sounds like a confident human: natural, warm, energetic, short sentences.
+- Hook in the first 2 seconds, strongest point at the end.
 - Accurate first: claims come from sources; say "reportedly" when unconfirmed.
 - Light humour is welcome; mocking people, tragedies and religion is not.
 - No clickbait the video doesn't pay off.
+- The mascot is a small brand mark (corner badge, end card), never the main visual.
 
-## Mascot rules
-
-- Buzzbee appears in every thumbnail corner and in the 1-second intro sting.
-- It reacts (surprised, thinking, laughing), it never replaces real visuals of the story.
-
-## Content pillars
+## Content pillars (any domain)
 
 | Pillar | Share | Examples |
 |---|---|---|
-| Trending, explained | 40% | Why is this film/match moment/phone launch/viral video everywhere? |
-| Curious why (evergreen) | 40% | Psychology, money, science, AI everyday questions |
-| The real story behind | 20% | Brands, movies, songs, inventions, internet moments |
+| Trending | 40% | Viral moments, movies and OTT, celebrity buzz, cricket and sports, gadget launches, business news |
+| Amazing facts | 35% | Science, space, history, nature, psychology, inventions, records, how things work |
+| Incredible stories | 25% | True stories, mysteries, rise and fall of brands and people, behind the scenes |
 
+Formats chosen per topic: quick update, story, top facts, explainer, myth vs fact.
 Never: war, politics, tragedies, medical advice, raw movie/match/song clips.
 
 ## Schedule
 
-2 Shorts a day, 1 deep-dive (6-10 min) a week, built from the best Short of the week.
-
-## Series names
-
-- **Buzz Check**: trending story explained in under 60 s
-- **Bee Curious**: evergreen "why does this happen?"
-- **The Real Story**: origin stories
-- **Buzz Deep Dive**: weekly long video
+2 Shorts a day; 1 longer video (6-10 min) a week built from the best-performing Short topic.
 
 ## Channel description (About)
 
 ```
 Buzzbee 🐝 All the buzz, explained.
 
-Something is trending and everyone is talking about it… but why?
-Buzzbee breaks down the stories taking over your feed: viral moments, movies and shows,
-cricket and sports, tech launches, money and business. Plus the curious "why does this
-happen?" questions you've always wondered about.
+Your daily dose of the most interesting things on the internet: trending stories, viral moments,
+movies and sports, tech and money, mind-blowing facts and incredible true stories.
 
 🐝 New Shorts every day
-🎬 Deep-dive explainers every week
+🎬 Bigger stories every week
 
-Quick, clear, well-researched and fun. No noise, just the buzz, explained.
-
+Quick, clear, well-researched and fun.
 Subscribe and turn on notifications so you never miss the buzz.
 ```
 
 ## Channel keywords
 
 ```
-buzzbee "all the buzz explained" "trending explained" "why is it trending" "viral explained" "explained in 60 seconds" "news explained" "entertainment explained" "tech explained" "money explained" "psychology facts" "science facts" "story behind" curiosity shorts india
+buzzbee "all the buzz explained" "trending now" "viral news" "amazing facts" "mind blowing facts" "true stories" "entertainment news" "movie news" "cricket news" "tech news" "money facts" "science facts" "did you know" shorts india
 ```
 
 ## Playlists
 
 | Playlist | Description |
 |---|---|
-| 🐝 Buzz Check | The stories everyone is talking about, explained in under a minute. |
-| 🧠 Bee Curious | Psychology, money, science and AI: the "why" behind everyday things. |
-| 🎬 The Real Story | How famous brands, movies, songs and internet moments really happened. |
-| 🔍 Buzz Deep Dives | Our weekly long explainers on the biggest stories. |
+| 🐝 Buzz Check | Everything people are talking about right now, in under a minute. |
+| 🧠 Bee Curious | Mind-blowing facts about science, space, history and the world around us. |
+| 🎬 The Real Story | Incredible true stories, mysteries and what really happened behind the scenes. |
+| 🔍 Buzz Deep Dives | Our weekly longer videos on the biggest stories. |
 
 Private workflow playlists (agent use): **Pending review**, **Urgent review**, **Approved**, **Rejected**.
