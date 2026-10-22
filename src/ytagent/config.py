@@ -30,6 +30,8 @@ class Env(BaseSettings):
 
 class ChannelCfg(BaseModel):
     name: str = "TBD"
+    tagline: str = ""
+    handle: str = ""
     youtube_channel_id: str = ""
     language: str = "en"
     geo: str = "IN"

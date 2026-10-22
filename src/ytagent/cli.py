@@ -15,6 +15,18 @@ trends_app = typer.Typer(no_args_is_help=True, help="Trend research agent.")
 app.add_typer(trends_app, name="trends")
 youtube_app = typer.Typer(no_args_is_help=True, help="YouTube account connection.")
 app.add_typer(youtube_app, name="youtube")
+brand_app = typer.Typer(no_args_is_help=True, help="Channel brand assets.")
+app.add_typer(brand_app, name="brand")
+
+
+@brand_app.command("render")
+def brand_render() -> None:
+    """Render mascot, profile picture, banner and watermark into brand/."""
+    from ytagent.brand import render_all
+
+    ch = get_settings().channel
+    for path in render_all(ch.name, ch.tagline):
+        console.print(f"wrote {path.relative_to(ROOT)}")
 console = Console()
 
 

@@ -1,13 +1,19 @@
 # Main agent configuration. Secrets live in .env, everything else here.
 
 channel:
-  name: "TBD"
+  name: "Buzzbee"
+  tagline: "All the buzz, explained."
+  handle: "@buzzbee"
   # The channel the agent manages; login is rejected if it signs into a different one.
   youtube_channel_id: UCzODU-zkEJBaUqBcUwBzoig
   language: en          # en | hi | bn ... (drives TTS voice and script language)
   geo: IN               # ISO country code for trend sources
-  # Topics the channel covers. Empty = broad trending mix (not recommended long term).
-  niches: []
+  # One promise across all topics: every video explains the WHY behind something people care about.
+  # Pillars (target mix): trending explained 40%, evergreen curiosity 40%, real story behind 20%.
+  niches:
+    - "trending explained: why a movie, show, celebrity moment, viral video, cricket/sports moment, tech launch or business story is everywhere right now"
+    - "evergreen curiosity: psychology, money and personal finance, science, AI and technology, everyday 'why does this happen' questions"
+    - "the real story behind famous brands, movies, songs, inventions and internet moments"
   # Never make content about these, regardless of score.
   blocked_topics:
     - graphic violence or tragedies involving victims
