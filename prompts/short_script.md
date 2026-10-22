@@ -26,6 +26,10 @@ For every beat also give:
   Use real places when relevant ("taj mahal", "mumbai street"). Never names of real people, brands, films
   or teams (stock libraries do not have them). No cartoons, no abstract graphics.
 - on_screen: a punchy label of max 5 words (key number, name or punchline).
+- subject: when the beat is about a specific real person, film, event, place or thing, name it precisely so
+  real archive footage can be found (e.g. "Charlie Chaplin The Tramp 1915", "Apollo 11 launch",
+  "Taj Mahal"). Leave it empty ("") for generic or reflective beats (life lessons, the viewer's life).
+  For a story about one person, most beats should name that person.
 
 Style:
 - Sound like a real, confident human narrator: natural, warm, short sentences, simple words, contractions.

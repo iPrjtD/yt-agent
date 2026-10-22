@@ -26,6 +26,7 @@ class Segment:
     source: Path          # video clip or still image
     duration: float
     still: bool = False
+    fit: bool = False     # show the whole frame over a blurred copy (archive film, 4:3) instead of cropping
 
 
 MUSIC_DIR = FONTS.parent / "music"
@@ -128,6 +129,15 @@ def _segment(seg: Segment, out: Path, width: int, height: int, fps: int) -> None
               f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={width}x{height}:fps={fps},format=yuv420p")
         ffmpeg(["-loop", "1", "-i", str(seg.source), "-t", f"{seg.duration:.3f}", "-vf", vf, "-an",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", str(out)])
+        return
+    if seg.fit:
+        # Whole frame, centred, over a blurred and darkened full-screen copy of itself.
+        graph = (f"[0:v]split[a][b];"
+                 f"[a]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
+                 f"boxblur=24:2,eq=brightness=-0.18[bg];"
+                 f"[b]scale={width}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2-120,setsar=1,fps={fps},format=yuv420p")
+        ffmpeg(["-stream_loop", "-1", "-i", str(seg.source), "-t", f"{seg.duration:.3f}", "-filter_complex", graph,
+                "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", str(out)])
         return
     vf = (f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,"
           f"fps={fps},eq=brightness=-0.05:saturation=1.08,format=yuv420p")

@@ -47,7 +47,7 @@ def test_clip_relevance_uses_tag_overlap():
 
 
 def test_full_description_lists_used_sources():
-    script = ShortScript(title="t", hook="h", hook_visual_query="q", beats=[Beat(narration="n", visual_query="q", on_screen="o")] * 3,
+    script = ShortScript(title="t", hook="h", hook_visual_query="q", beats=[Beat(narration="n", visual_query="q", on_screen="o", subject="")] * 3,
                          outro="o", description="Why it matters.\n\nSources: [2]", tags=["a"], pillar="facts",
                          sources_used=[2])
     sources = [Source("A", "https://a.example", "x"), Source("B", "https://b.example", "y")]
@@ -57,6 +57,17 @@ def test_full_description_lists_used_sources():
     assert desc.endswith("#shorts #buzzbee")
     with_credits = full_description(script, sources, ["Photo: A, CC BY 4.0, via Wikimedia Commons (u)"] * 2)
     assert with_credits.count("Photo: A, CC BY 4.0") == 1
+
+
+def test_fill_subjects_marks_story_beats_up_to_the_quote():
+    from ytagent.pipeline import _fill_subjects
+
+    beats = [Beat(narration=n, visual_query="q", on_screen="o", subject="") for n in
+             ["Born poor.", "Became a star.", 'He said "I remain a clown."', "Your struggles do not define you."]]
+    script = ShortScript(title="t", hook="h", hook_visual_query="q", beats=beats, outro="o", description="d",
+                         tags=["a"], pillar="motivation")
+    _fill_subjects(script, "Charlie Chaplin")
+    assert [b.subject for b in script.beats] == ["Charlie Chaplin"] * 3 + [""]
 
 
 def test_parse_dyk_extracts_fact_and_article():

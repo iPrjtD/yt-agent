@@ -20,6 +20,8 @@ class Beat(BaseModel):
     narration: str
     visual_query: str
     on_screen: str
+    subject: str = Field(description="the specific real person, film, event or place this beat is about, for "
+                                     "archive footage (e.g. 'Charlie Chaplin The Tramp'); empty if generic")
 
 
 class ShortScript(BaseModel):
