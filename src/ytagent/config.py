@@ -19,6 +19,8 @@ class Env(BaseSettings):
     database_url: str = "postgresql+psycopg://ytagent:change-me@127.0.0.1:5432/ytagent"
     ollama_api_base: str = "http://127.0.0.1:11434"
     searxng_url: str = "http://127.0.0.1:8888"
+    # Full path when ffmpeg is not on PATH (MoviePy reads the same FFMPEG_BINARY variable).
+    ffmpeg_binary: str = "ffmpeg"
     youtube_api_key: str = ""
     youtube_client_secrets: str = "secrets/youtube_client_secret.json"
     pexels_api_key: str = ""

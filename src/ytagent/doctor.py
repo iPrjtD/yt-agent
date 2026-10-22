@@ -36,8 +36,8 @@ def run_checks(settings: Settings) -> list[Check]:
     env = settings.env
     checks = [Check("python", sys.version_info[:2] == (3, 12), sys.version.split()[0])]
 
-    ffmpeg = shutil.which("ffmpeg")
-    version = _run([ffmpeg, "-version"]).split(" Copyright")[0] if ffmpeg else "not on PATH"
+    ffmpeg = shutil.which(env.ffmpeg_binary)
+    version = _run([ffmpeg, "-version"]).split(" Copyright")[0] if ffmpeg else "not found: set FFMPEG_BINARY in .env"
     checks.append(Check("ffmpeg", bool(ffmpeg), version))
 
     docker = shutil.which("docker")
