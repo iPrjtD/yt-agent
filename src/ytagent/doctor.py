@@ -85,6 +85,7 @@ def run_checks(settings: Settings) -> list[Check]:
     checks.append(Check("YOUTUBE_API_KEY", bool(env.youtube_api_key), "Google Cloud API key", "trending + search"))
     secrets = ROOT / env.youtube_client_secrets
     checks.append(Check("YouTube OAuth client", secrets.exists(), str(secrets.relative_to(ROOT)), "Phase 1 upload"))
-    checks.append(Check("PEXELS_API_KEY", bool(env.pexels_api_key), "pexels.com/api", "Phase 1 visuals"))
+    # Pexels paused new API keys (Oct 2026); Pixabay is the primary stock source until it reopens.
+    checks.append(Check("PEXELS_API_KEY", bool(env.pexels_api_key), "optional: issuance paused", "optional"))
     checks.append(Check("PIXABAY_API_KEY", bool(env.pixabay_api_key), "pixabay.com/api/docs", "Phase 1 visuals"))
     return checks
