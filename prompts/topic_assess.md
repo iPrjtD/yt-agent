@@ -11,7 +11,8 @@ Signals: {signals}
 Related headlines: {context}
 
 Rules for judging:
-- niche_fit (0-10): how well it fits the channel and how much this audience will care.
+- niche_fit (0-10): how well it fits the channel and how much a broad audience will care. Topics only
+  specialists care about (programming releases, niche B2B news, local administrative notices) score 3 or less.
 - ad_safety (0-10): 10 = brand-safe for all advertisers; low for tragedy, violence, adult themes, controversy.
 - sensitive: true for deaths, disasters, crime victims, elections, medical claims, or unverified rumours.
 - blocked: true if it falls under "Never cover".

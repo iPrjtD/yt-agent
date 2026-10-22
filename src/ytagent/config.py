@@ -65,10 +65,37 @@ class PathsCfg(BaseModel):
     data_dir: str = "data"
 
 
+class VoiceCfg(BaseModel):
+    engine: str = "kokoro"
+    voice: str = "af_heart"
+    speed: float = 1.08
+    line_gap_s: float = 0.16
+
+
+class CaptionsCfg(BaseModel):
+    whisper_model: str = "base.en"
+
+
+class VideoCfg(BaseModel):
+    width: int = 1080
+    height: int = 1920
+    fps: int = 30
+    max_short_seconds: int = 59
+
+
+class PublishingCfg(BaseModel):
+    mode: str = "manual"
+    contains_synthetic_media: bool = False
+
+
 class Settings(BaseModel):
     channel: ChannelCfg
     llm: LlmCfg
     trends: TrendsCfg
+    voice: VoiceCfg = Field(default_factory=VoiceCfg)
+    captions: CaptionsCfg = Field(default_factory=CaptionsCfg)
+    video: VideoCfg = Field(default_factory=VideoCfg)
+    publishing: PublishingCfg = Field(default_factory=PublishingCfg)
     paths: PathsCfg = Field(default_factory=PathsCfg)
     env: Env = Field(default_factory=Env)
 

@@ -3,7 +3,7 @@
 channel:
   name: "Buzzbee"
   tagline: "All the buzz, explained."
-  handle: "@buzzbee"
+  handle: "@buzzbee-0"
   # The channel the agent manages; login is rejected if it signs into a different one.
   youtube_channel_id: UCzODU-zkEJBaUqBcUwBzoig
   language: en          # en | hi | bn ... (drives TTS voice and script language)
@@ -57,6 +57,27 @@ trends:
     w_llm_fit: 0.30
     freshness_half_life_h: 18
   keep_days: 14
+
+voice:
+  engine: kokoro                 # kokoro (free, local) | elevenlabs (later)
+  voice: af_heart                # Kokoro voice id; samples in data/tts_test
+  speed: 1.08
+  line_gap_s: 0.16
+
+captions:
+  whisper_model: base.en         # word timing for burned-in captions
+
+video:
+  width: 1080
+  height: 1920
+  fps: 30
+  max_short_seconds: 59
+
+publishing:
+  # manual: render + publish package for upload in Studio (until the YouTube API audit passes)
+  # api: private upload to "Pending review", then the agent publishes what you approve
+  mode: manual
+  contains_synthetic_media: false  # true only for realistic AI visuals or voice imitating real people
 
 paths:
   data_dir: data

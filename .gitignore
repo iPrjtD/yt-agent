@@ -26,3 +26,6 @@ dashboard/web/dist/
 Thumbs.db
 .vscode/
 .idea/
+
+# Downloaded model weights
+models/

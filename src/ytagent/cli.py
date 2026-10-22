@@ -17,6 +17,38 @@ youtube_app = typer.Typer(no_args_is_help=True, help="YouTube account connection
 app.add_typer(youtube_app, name="youtube")
 brand_app = typer.Typer(no_args_is_help=True, help="Channel brand assets.")
 app.add_typer(brand_app, name="brand")
+short_app = typer.Typer(no_args_is_help=True, help="Produce Shorts.")
+app.add_typer(short_app, name="short")
+
+
+@short_app.command("make")
+def short_make(
+    topic_id: int = typer.Option(None, help="Topic id (default: best scored topic)."),
+    upload: bool = typer.Option(None, "--upload/--no-upload", help="Override publishing.mode."),
+) -> None:
+    """Research, write, voice, render and package (or upload privately) one Short."""
+    from ytagent.db import job_run
+    from ytagent.pipeline import make_short
+
+    with job_run("short.make") as detail:
+        detail.update(make_short(topic_id, upload))
+    console.print(detail)
+
+
+@short_app.command("list")
+def short_list(limit: int = 20) -> None:
+    """Recent videos and their status."""
+    from sqlalchemy import select
+
+    from ytagent.db import session_scope
+    from ytagent.models import Video
+
+    with session_scope() as s:
+        table = Table("id", "status", "title", "youtube", "folder")
+        for v in s.scalars(select(Video).order_by(Video.id.desc()).limit(limit)):
+            table.add_row(str(v.id), v.status, (v.title or "")[:50], v.youtube_id or "-",
+                          (v.meta or {}).get("dir", "")[-40:])
+    console.print(table)
 
 
 @brand_app.command("apply")

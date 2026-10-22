@@ -116,14 +116,14 @@ def mascot(size: int = 1024) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
-def _radial_glow(size: tuple[int, int], center: tuple[int, int], radius: int, color, alpha: int) -> Image.Image:
+def radial_glow(size: tuple[int, int], center: tuple[int, int], radius: int, color, alpha: int) -> Image.Image:
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     cx, cy = center
     ImageDraw.Draw(layer).ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=color + (alpha,))
     return layer.filter(ImageFilter.GaussianBlur(radius / 2.2))
 
 
-def _honeycomb(img: Image.Image, r: int, color, width: int) -> None:
+def honeycomb(img: Image.Image, r: int, color, width: int) -> None:
     d = ImageDraw.Draw(img)
     hw, hh = math.sqrt(3) * r, 1.5 * r
     rows, cols = int(img.height / hh) + 2, int(img.width / hw) + 2
@@ -138,7 +138,7 @@ def _honeycomb(img: Image.Image, r: int, color, width: int) -> None:
 
 def profile_picture(size: int = 800) -> Image.Image:
     img = Image.new("RGBA", (size, size), CHARCOAL + (255,))
-    img.alpha_composite(_radial_glow(img.size, (size // 2, size // 2), int(size * 0.42), HONEY, 70))
+    img.alpha_composite(radial_glow(img.size, (size // 2, size // 2), int(size * 0.42), HONEY, 70))
     d = ImageDraw.Draw(img)
     inset = int(size * 0.035)
     d.ellipse([inset, inset, size - inset, size - inset], outline=HONEY, width=max(2, size // 90))
@@ -160,7 +160,7 @@ def banner(channel_name: str, tagline: str, strapline: str) -> Image.Image:
     """2560x1440 banner; all content inside YouTube's 1546x423 safe area (visible on every device)."""
     w, h = 2560, 1440
     img = Image.new("RGBA", (w, h), CHARCOAL + (255,))
-    _honeycomb(img, 64, HEX_LINE, 3)
+    honeycomb(img, 64, HEX_LINE, 3)
 
     f_name, f_tag, f_strap = font("Black", 178), font("SemiBold", 66), font("Medium", 42)
     text_w = max(f.getbbox(t)[2] for f, t in ((f_name, channel_name), (f_tag, tagline), (f_strap, strapline)))
@@ -169,7 +169,7 @@ def banner(channel_name: str, tagline: str, strapline: str) -> Image.Image:
     x0 = (w - group_w) // 2
     cy = h // 2
 
-    img.alpha_composite(_radial_glow(img.size, (x0 + bee_size // 2, cy), 330, HONEY, 85))
+    img.alpha_composite(radial_glow(img.size, (x0 + bee_size // 2, cy), 330, HONEY, 85))
     bee = mascot(bee_size)
     img.alpha_composite(bee, (x0, cy - bee_size // 2))
 
@@ -189,7 +189,7 @@ def render_all(channel_name: str, tagline: str) -> list[Path]:
         "mascot.png": mascot(1024),
         "profile_picture.png": profile_picture(800).convert("RGB"),
         "watermark.png": watermark(150),
-        "banner.png": banner(channel_name, tagline, "New Shorts daily  •  Deep dives weekly").convert("RGB"),
+        "banner.png": banner(channel_name, tagline, "New Shorts daily  â€¢  Deep dives weekly").convert("RGB"),
     }
     paths = []
     for name, image in files.items():
