@@ -19,6 +19,26 @@ brand_app = typer.Typer(no_args_is_help=True, help="Channel brand assets.")
 app.add_typer(brand_app, name="brand")
 short_app = typer.Typer(no_args_is_help=True, help="Produce Shorts.")
 app.add_typer(short_app, name="short")
+llm_app = typer.Typer(no_args_is_help=True, help="Language model setup.")
+app.add_typer(llm_app, name="llm")
+
+
+@llm_app.command("gemini-models")
+def llm_gemini_models() -> None:
+    """List Gemini models your GEMINI_API_KEY can use."""
+    from ytagent.providers.llm import gemini_models
+
+    for name in gemini_models():
+        console.print(name)
+
+
+@llm_app.command("test")
+def llm_test(role: str = "writer") -> None:
+    """Send a tiny prompt to a role's model and show which model answered."""
+    from ytagent.providers import llm
+
+    console.print(llm.complete(role, [{"role": "user", "content": "Reply with exactly: Buzzbee ready"}],
+                               temperature=0))
 
 
 @short_app.command("make")

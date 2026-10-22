@@ -25,7 +25,8 @@ channel:
 # Model roles. Any LiteLLM model string works, e.g. "anthropic/claude-sonnet-5-5" after upgrading.
 llm:
   fast: ollama_chat/qwen3.5:4b       # classification, scoring, short JSON tasks
-  writer: ollama_chat/qwen3.5:9b     # research briefs and scripts
+  writer: ollama_chat/qwen3.5:9b     # scripts + fact check; switches to Gemini once GEMINI_API_KEY is set
+  writer_fallback: ollama_chat/qwen3.5:9b  # used if the writer fails (rate limit, outage)
   embed: ollama/bge-m3               # multilingual embeddings (1024 dims)
   embed_dims: 1024
   timeout_s: 600

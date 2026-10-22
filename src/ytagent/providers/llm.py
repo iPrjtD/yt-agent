@@ -32,24 +32,46 @@ def _model_kwargs(model: str) -> dict:
     kwargs: dict = {"timeout": settings.llm.timeout_s}
     if _is_ollama(model):
         kwargs["api_base"] = settings.env.ollama_api_base
+    if model.startswith("gemini/"):
+        kwargs["api_key"] = settings.env.gemini_api_key
     return kwargs
+
+
+def _models(role: Role) -> list[str]:
+    cfg = get_settings().llm
+    models = [getattr(cfg, role)]
+    if role == "writer" and cfg.writer_fallback and cfg.writer_fallback not in models:
+        models.append(cfg.writer_fallback)
+    return models
 
 
 def complete(role: Role, messages: list[dict], *, response_format: dict | None = None, temperature: float = 0.7,
              think: bool = False) -> str:
-    """`think` enables a local reasoning model's thinking phase: better answers, but minutes on a CPU."""
-    model = getattr(get_settings().llm, role)
-    kwargs = _model_kwargs(model)
-    if _is_ollama(model):
-        kwargs["think"] = think
-    if response_format:
-        kwargs["response_format"] = response_format
-    resp = litellm.completion(model=model, messages=messages, temperature=temperature, **kwargs)
-    text = resp.choices[0].message.content or ""
-    return _THINK_RE.sub("", text).strip()
+    """`think` enables a local reasoning model's thinking phase: better answers, but minutes on a CPU.
+
+    If the role's model fails (rate limit, outage, missing key), the configured fallback is tried.
+    """
+    models = _models(role)
+    for i, model in enumerate(models):
+        kwargs = _model_kwargs(model)
+        if _is_ollama(model):
+            kwargs["think"] = think
+        if response_format:
+            kwargs["response_format"] = response_format
+        try:
+            resp = litellm.completion(model=model, messages=messages, temperature=temperature, **kwargs)
+        except Exception as exc:
+            if i == len(models) - 1:
+                raise
+            log.warning("%s failed (%s); falling back to %s", model, type(exc).__name__, models[i + 1])
+            continue
+        text = resp.choices[0].message.content or ""
+        return _THINK_RE.sub("", text).strip()
+    raise RuntimeError("no model configured")
 
 
-def complete_json[M: BaseModel](role: Role, messages: list[dict], schema: type[M], *, retries: int = 2) -> M:
+def complete_json[M: BaseModel](role: Role, messages: list[dict], schema: type[M], *, retries: int = 2,
+                                temperature: float = 0.2) -> M:
     """Ask for JSON matching `schema`; on invalid output, show the error to the model and retry.
 
     The schema goes in response_format (constrained decoding on Ollama), not in the prompt: on a CPU
@@ -60,7 +82,7 @@ def complete_json[M: BaseModel](role: Role, messages: list[dict], schema: type[M
     convo = list(messages)
     last_err: Exception | None = None
     for _ in range(retries + 1):
-        text = complete(role, convo, response_format=response_format, temperature=0.2)
+        text = complete(role, convo, response_format=response_format, temperature=temperature)
         try:
             return schema.model_validate_json(_extract_json(text))
         except (ValidationError, ValueError) as err:
@@ -71,6 +93,21 @@ def complete_json[M: BaseModel](role: Role, messages: list[dict], schema: type[M
                 {"role": "user", "content": f"That was invalid: {err}. Send the corrected JSON only."},
             ]
     raise ValueError(f"LLM did not return valid {schema.__name__}: {last_err}")
+
+
+def gemini_models() -> list[str]:
+    """Gemini models this key can use for text generation (newest names first)."""
+    import httpx
+
+    key = get_settings().env.gemini_api_key
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY is empty in .env")
+    resp = httpx.get("https://generativelanguage.googleapis.com/v1beta/models", params={"key": key, "pageSize": 200},
+                     timeout=30)
+    resp.raise_for_status()
+    names = [m["name"].removeprefix("models/") for m in resp.json().get("models", [])
+             if "generateContent" in m.get("supportedGenerationMethods", [])]
+    return sorted(names, reverse=True)
 
 
 def embed(texts: list[str]) -> list[list[float]]:

@@ -50,7 +50,7 @@ def write_short(brief: Brief, fmt: str = "facts", angle: str = "") -> ShortScrip
         format_name=fmt, format_guide=guide, min_words=MIN_WORDS, max_words=MAX_WORDS,
     )
     messages = [{"role": "user", "content": prompt}]
-    script = llm.complete_json("writer", messages, ShortScript)
+    script = llm.complete_json("writer", messages, ShortScript, temperature=0.8)
     words = script.word_count()
     if not MIN_WORDS * 0.8 <= words <= MAX_WORDS * 1.2:
         log.info("script has %d words, asking for a resize", words)
@@ -79,7 +79,7 @@ def fact_check(script: ShortScript, brief: Brief, messages: list[dict]) -> Short
               "List every line that states a fact, number, date, name or quote that the research does NOT "
               "support, or that exaggerates it. Opinions, questions, jokes and the follow invitation are fine. "
               "Quotes must match the research word for word. Return an empty list if everything is supported.")
-    issues = llm.complete_json("fast", [{"role": "user", "content": prompt}], FactCheck).issues
+    issues = llm.complete_json("writer", [{"role": "user", "content": prompt}], FactCheck).issues
     if not issues:
         return script
     log.info("fact check: %d issue(s): %s", len(issues), "; ".join(f"{i.line}: {i.problem}" for i in issues))

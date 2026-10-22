@@ -1,17 +1,23 @@
-"""Visuals per shot: Pixabay stock video, then Pixabay photos (Ken Burns), else a branded card.
+"""Visuals per shot, picked by what the footage actually shows.
 
-Pixabay content is free for commercial use without attribution.
+Candidates come from Pixabay video and photos (free commercial use, no attribution), the NASA library
+(public domain) and Wikimedia Commons (public domain or CC BY / BY-SA with a credit line). A local CLIP model
+scores each candidate's small preview against the shot description; only the best match above a quality bar
+is downloaded. Nothing good enough -> the caller uses a branded card.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
 import re
 import textwrap
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -25,12 +31,26 @@ log = logging.getLogger(__name__)
 
 CACHE_TTL_S = 24 * 3600  # Pixabay asks API clients to cache search results for 24 h
 ENDPOINTS = {"video": "https://pixabay.com/api/videos/", "photo": "https://pixabay.com/api/"}
+MIN_MATCH = 0.24      # CLIP cosine: ~0.27-0.31 clear match, <=0.20 unrelated (calibrated on Pixabay previews)
+VIDEO_BONUS = 0.015   # prefer moving footage over a photo when they match about equally
+HEADERS = {"User-Agent": USER_AGENT}  # Wikimedia rejects requests without a descriptive User-Agent
 
 
 @dataclass
 class Visual:
     path: Path
     still: bool
+
+
+@dataclass
+class Candidate:
+    key: str                         # unique id across sources, e.g. "v123" (video), "p45" (photo)
+    preview: str                     # small image URL used for matching
+    fetch: Callable[[], Path | None]
+    still: bool
+    credit: str = ""                 # attribution line when the licence needs one
+    note: str = ""
+    score: float = field(default=0.0)
 
 
 def _cache_dir() -> Path:
@@ -74,14 +94,13 @@ def _best_rendition(hit: dict) -> dict | None:
 _STOP = {"with", "the", "and", "for", "from", "into", "onto", "over", "under", "looking", "showing", "of", "in",
          "on", "at", "a", "an", "to", "is", "are", "people", "person", "man", "woman", "outside", "carefully"}
 
+# Non-photographic looks that break a "real footage" feel, unless the query asks for them.
+_UNREAL = {"cartoon", "animation", "animated", "illustration", "drawing", "anime", "cgi", "render", "abstract",
+           "nebula", "galaxy", "fantasy", "vector", "clipart", "3d", "painting", "sketch", "generated", "art"}
+
 
 def _terms(text: str) -> set[str]:
     return {w.rstrip("s") for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 2 and w not in _STOP}
-
-
-# Non-photographic looks that break a "real footage" feel, unless the query asks for them.
-_UNREAL = {"cartoon", "animation", "animated", "illustration", "drawing", "anime", "cgi", "render", "abstract",
-           "nebula", "galaxy", "fantasy", "vector", "clipart", "3d"}
 
 
 def relevance(query: str, hit: dict) -> int:
@@ -92,22 +111,14 @@ def relevance(query: str, hit: dict) -> int:
     return len(_terms(query) & tags)
 
 
-def _needed(query: str) -> int:
-    """Tag overlap required: about half the meaningful words (min 1, max 3), so generic words can't carry a match."""
-    n = len(_terms(query))
-    return max(1, min(3, (n + 1) // 2 if n >= 4 else min(2, n)))
-
-
 def _download(url: str, path: Path, attempts: int = 3) -> Path | None:
-    """Download with back-off on rate limits; None if it keeps failing (the caller tries another hit)."""
+    """Download with back-off on rate limits; None if it keeps failing (the caller tries another candidate)."""
     if path.exists():
         return path
     tmp = path.with_suffix(path.suffix + ".part")
     for attempt in range(attempts):
         try:
-            # Wikimedia rejects requests without a descriptive User-Agent (403).
-            headers = {"User-Agent": USER_AGENT}
-            with httpx.stream("GET", url, timeout=120, follow_redirects=True, headers=headers) as resp:
+            with httpx.stream("GET", url, timeout=120, follow_redirects=True, headers=HEADERS) as resp:
                 resp.raise_for_status()
                 with tmp.open("wb") as fh:
                     for chunk in resp.iter_bytes():
@@ -126,131 +137,160 @@ def _queries(query: str) -> list[str]:
     return [q for q in dict.fromkeys([query, " ".join(words[:2]), " ".join(words[-2:])]) if q]
 
 
-def find_clip(query: str, min_seconds: float, used: set[str]) -> Path | None:
-    need = _needed(query)
-    for q in _queries(query):
-        hits = [h for h in search("video", q) if f"v{h['id']}" not in used and relevance(query, h) >= need]
-        # Most relevant first; then clips long enough not to loop; then vertical ones.
-        hits.sort(key=lambda h: (-relevance(query, h), h.get("duration", 0) < min_seconds,
-                                 not any(r.get("height", 0) > r.get("width", 1) for r in h["videos"].values())))
-        for hit in hits[:5]:
-            rendition = _best_rendition(hit)
-            if not rendition:
-                continue
-            path = _download(rendition["url"], _cache_dir() / f"{hit['id']}_{rendition['height']}.mp4")
-            if path:
-                used.add(f"v{hit['id']}")
-                log.info("clip %s for %r (%s)", hit["id"], query, hit.get("tags"))
-                return path
-    return None
+# --- candidate sources ---------------------------------------------------------------------------------------
 
 
-def find_photo(query: str, used: set[str]) -> Path | None:
-    need = _needed(query)
-    for q in _queries(query):
-        hits = [h for h in search("photo", q) if f"p{h['id']}" not in used and relevance(query, h) >= need]
-        # Most relevant first; portrait photos crop better to 9:16.
-        hits.sort(key=lambda h: (-relevance(query, h), h.get("imageHeight", 0) < h.get("imageWidth", 1)))
-        for hit in hits[:5]:
-            url = hit.get("largeImageURL") or hit.get("webformatURL")
-            path = _download(url, _cache_dir() / f"photo_{hit['id']}.jpg") if url else None
-            if path:
-                used.add(f"p{hit['id']}")
-                log.info("photo %s for %r (%s)", hit["id"], query, hit.get("tags"))
-                return path
-    return None
+def pixabay_candidates(query: str, used: set[str], limit: int = 10) -> list[Candidate]:
+    out: list[Candidate] = []
+    for kind, prefix in (("video", "v"), ("photo", "p")):
+        seen: dict[str, dict] = {}
+        for q in _queries(query):
+            for hit in search(kind, q):
+                k = f"{prefix}{hit['id']}"
+                if k not in used and k not in seen and relevance(query, hit) >= 1:
+                    seen[k] = hit
+            if len(seen) >= limit:
+                break
+        ranked = sorted(seen.items(), key=lambda kv: -relevance(query, kv[1]))[:limit]
+        for k, hit in ranked:
+            if kind == "video":
+                rendition = _best_rendition(hit)
+                videos = hit["videos"]
+                thumb = videos.get("tiny", {}).get("thumbnail") or videos.get("small", {}).get("thumbnail")
+                if not rendition or not thumb:
+                    continue
+                path = _cache_dir() / f"{hit['id']}_{rendition['height']}.mp4"
+                out.append(Candidate(k, thumb, lambda u=rendition["url"], p=path: _download(u, p), still=False,
+                                     note=hit.get("tags", "")))
+            else:
+                url = hit.get("largeImageURL") or hit.get("webformatURL")
+                if not url or not hit.get("previewURL"):
+                    continue
+                path = _cache_dir() / f"photo_{hit['id']}.jpg"
+                out.append(Candidate(k, hit["previewURL"], lambda u=url, p=path: _download(u, p), still=True,
+                                     note=hit.get("tags", "")))
+    return out
 
-
-# --- NASA Image and Video Library (public domain; no endorsement may be implied) ---------------------------
 
 _SPACE = {"space", "planet", "star", "moon", "mar", "sun", "earth", "astronaut", "rocket", "nebula", "galaxy",
           "black", "hole", "asteroid", "comet", "orbit", "saturn", "jupiter", "venus", "mercury", "universe",
           "telescope", "satellite", "aurora", "eclipse", "cosmo", "spacecraft", "iss"}
 
 
-def find_nasa_photo(query: str, used: set[str]) -> Path | None:
+def nasa_candidates(query: str, used: set[str], limit: int = 6) -> list[Candidate]:
+    """NASA Image Library (public domain; must not imply NASA endorsement). Only for space-related shots."""
     if not _terms(query) & _SPACE:
-        return None
-    resp = httpx.get("https://images-api.nasa.gov/search", timeout=30,
-                     params={"q": query, "media_type": "image", "page_size": 20})
-    if resp.status_code >= 400:
-        return None
+        return []
+    try:
+        resp = httpx.get("https://images-api.nasa.gov/search", timeout=30,
+                         params={"q": query, "media_type": "image", "page_size": 30})
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        return []
+    out = []
     for item in resp.json().get("collection", {}).get("items", []):
-        data = item.get("data", [{}])[0]
+        data = (item.get("data") or [{}])[0]
         nasa_id = data.get("nasa_id", "")
-        if not nasa_id or f"n{nasa_id}" in used:
+        thumb = next((link["href"] for link in item.get("links", []) if link.get("render") == "image"), "")
+        if not nasa_id or not thumb or f"n{nasa_id}" in used:
             continue
-        if not _terms(query) & _terms(" ".join([data.get("title", ""), *data.get("keywords", [])])):
-            continue
-        assets = httpx.get(f"https://images-api.nasa.gov/asset/{nasa_id}", timeout=30)
-        urls = [i["href"] for i in assets.json().get("collection", {}).get("items", [])] if assets.is_success else []
-        url = next((u for u in urls if "~large." in u), None) or next((u for u in urls if "~orig." in u), None)
-        path = _download(url.replace("http://", "https://"), _cache_dir() / f"nasa_{_safe(nasa_id)}.jpg") if url \
-            else None
-        if path:
-            used.add(f"n{nasa_id}")
-            log.info("nasa %s for %r (%s)", nasa_id, query, data.get("title"))
-            return path
-    return None
 
+        def fetch(nid: str = nasa_id) -> Path | None:
+            assets = httpx.get(f"https://images-api.nasa.gov/asset/{nid}", timeout=30)
+            items = assets.json().get("collection", {}).get("items", []) if assets.is_success else []
+            urls = [i["href"] for i in items]
+            url = next((u for u in urls if "~large." in u), None) or next((u for u in urls if "~orig." in u), None)
+            safe = re.sub(r"[^A-Za-z0-9_-]+", "_", nid)[:80]
+            return _download(url.replace("http://", "https://"), _cache_dir() / f"nasa_{safe}.jpg") if url else None
 
-# --- Wikimedia Commons (real people and places; public domain or CC BY / BY-SA with credit) ------------------
+        out.append(Candidate(f"n{nasa_id}", thumb.replace("http://", "https://"), fetch, still=True,
+                             note=data.get("title", "")))
+        if len(out) >= limit:
+            break
+    return out
+
 
 _OK_LICENSES = re.compile(r"^(public domain|pd|cc0|cc by(-sa)? [\d.]+|no restrictions)", re.I)
+_NO_CREDIT = re.compile(r"^(public domain|pd|cc0|no restrictions)", re.I)
 
 
-def _safe(text: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_-]+", "_", text)[:80]
-
-
-def find_commons_photo(query: str, used: set[str], credits: list[str]) -> Path | None:
-    """A freely licensed photo; CC licences add an attribution line to `credits`."""
-    resp = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=30,
-                     headers={"User-Agent": "yt-agent/0.1 (https://github.com/iPrjtD)"},
-                     params={"action": "query", "generator": "search", "gsrsearch": f"{query} filetype:bitmap",
-                             "gsrnamespace": 6, "gsrlimit": 10, "prop": "imageinfo",
-                             "iiprop": "url|extmetadata|size", "iiurlwidth": 1440, "format": "json",
-                             "formatversion": 2})
-    if resp.status_code >= 400:
-        return None
-    pages = sorted(resp.json().get("query", {}).get("pages", []), key=lambda p: p.get("index", 99))
-    for page in pages:
+def commons_candidates(query: str, used: set[str], limit: int = 6) -> list[Candidate]:
+    """Wikimedia Commons photos with a reusable licence; CC licences carry a credit line."""
+    try:
+        resp = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=30, headers=HEADERS, params={
+            "action": "query", "generator": "search", "gsrsearch": f"{query} filetype:bitmap", "gsrnamespace": 6,
+            "gsrlimit": 15, "prop": "imageinfo", "iiprop": "url|extmetadata|size", "iiurlwidth": 1440,
+            "format": "json", "formatversion": 2})
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        return []
+    out = []
+    for page in sorted(resp.json().get("query", {}).get("pages", []), key=lambda p: p.get("index", 99)):
         info = (page.get("imageinfo") or [{}])[0]
         meta = info.get("extmetadata", {})
-        license_name = meta.get("LicenseShortName", {}).get("value", "")
-        if f"c{page['pageid']}" in used or not _OK_LICENSES.match(license_name):
+        licence = meta.get("LicenseShortName", {}).get("value", "")
+        thumb = info.get("thumburl", "")
+        if f"c{page['pageid']}" in used or not _OK_LICENSES.match(licence) or info.get("width", 0) < 800 or not thumb:
             continue
-        if info.get("width", 0) < 800 or not _terms(query) & _terms(page["title"]):
-            continue
-        url = info.get("thumburl") or info.get("url")
-        path = _download(url, _cache_dir() / f"commons_{page['pageid']}.jpg") if url else None
-        if path:
-            used.add(f"c{page['pageid']}")
-            artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip() or "Unknown"
-            if not re.match(r"public domain|pd|cc0|no restrictions", license_name, re.I):
-                source = info.get("descriptionurl", "")
-                credits.append(f"Photo: {artist}, {license_name}, via Wikimedia Commons ({source})")
-            log.info("commons %s for %r (%s, %s)", page["title"], query, license_name, artist[:40])
-            return path
-    return None
+        artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip() or "Unknown"
+        credit = "" if _NO_CREDIT.match(licence) else \
+            f"Photo: {artist}, {licence}, via Wikimedia Commons ({info.get('descriptionurl', '')})"
+        path = _cache_dir() / f"commons_{page['pageid']}.jpg"
+        out.append(Candidate(f"c{page['pageid']}", re.sub(r"/\d+px-", "/320px-", thumb),
+                             lambda u=thumb, p=path: _download(u, p), still=True, credit=credit, note=page["title"]))
+        if len(out) >= limit:
+            break
+    return out
+
+
+# --- selection -----------------------------------------------------------------------------------------------
+
+
+def _preview(url: str) -> Image.Image | None:
+    try:
+        resp = httpx.get(url, timeout=20, headers=HEADERS, follow_redirects=True)
+        resp.raise_for_status()
+        return Image.open(io.BytesIO(resp.content)).convert("RGB")
+    except Exception:  # unreadable preview: just skip the candidate
+        return None
+
+
+def rank(candidates: list[Candidate], description: str) -> list[Candidate]:
+    """Score candidates by CLIP similarity of their preview to the description; best first."""
+    from ytagent.media.clip_match import similarity
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        previews = list(pool.map(_preview, [c.preview for c in candidates]))
+    kept = [(c, img) for c, img in zip(candidates, previews, strict=True) if img is not None]
+    if not kept:
+        return []
+    sims = similarity(f"a photo of {description}", [img for _, img in kept])
+    for (cand, _), sim in zip(kept, sims, strict=True):
+        cand.score = sim + (0 if cand.still else VIDEO_BONUS)
+    return sorted((c for c, _ in kept), key=lambda c: c.score, reverse=True)
 
 
 def find_visual(query: str, min_seconds: float, used: set[str], credits: list[str] | None = None,
                 person: str = "") -> Visual | None:
-    """Best real visual for a shot: the person's photo if asked, stock video, NASA, then photos."""
+    """The best-matching real visual for a shot, or None if nothing clears the quality bar."""
     credits = credits if credits is not None else []
-    if person:
-        photo = find_commons_photo(person, used, credits)
-        if photo:
-            return Visual(photo, still=True)
-    clip = find_clip(query, min_seconds, used)
-    if clip:
-        return Visual(clip, still=False)
-    for finder in (lambda: find_nasa_photo(query, used), lambda: find_photo(query, used),
-                   lambda: find_commons_photo(query, used, credits)):
-        photo = finder()
-        if photo:
-            return Visual(photo, still=True)
+    if person:  # motivation: a real photo of the person
+        pool = commons_candidates(person, used)
+        description = f"{person}, portrait"
+    else:
+        pool = pixabay_candidates(query, used) + nasa_candidates(query, used) + commons_candidates(query, used, 4)
+        description = query
+    for cand in rank(pool, description):
+        if cand.score < MIN_MATCH and not person:
+            break
+        path = cand.fetch()
+        if path:
+            used.add(cand.key)
+            if cand.credit:
+                credits.append(cand.credit)
+            log.info("%s %.3f for %r (%s)", cand.key, cand.score, description, cand.note[:60])
+            return Visual(path, cand.still)
+    log.info("no visual above %.2f for %r", MIN_MATCH, description)
     return None
 
 

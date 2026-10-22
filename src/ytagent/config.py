@@ -24,6 +24,7 @@ class Env(BaseSettings):
     youtube_api_key: str = ""
     youtube_client_secrets: str = "secrets/youtube_client_secret.json"
     pexels_api_key: str = ""
+    gemini_api_key: str = ""
     pixabay_api_key: str = ""
     ntfy_topic: str = ""
 
@@ -42,6 +43,8 @@ class ChannelCfg(BaseModel):
 class LlmCfg(BaseModel):
     fast: str
     writer: str
+    # Used when the writer model fails (rate limit, outage, missing key).
+    writer_fallback: str = ""
     embed: str
     embed_dims: int = 1024
     timeout_s: int = 600
