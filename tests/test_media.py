@@ -43,7 +43,7 @@ def test_clip_relevance_uses_tag_overlap():
     assert relevance("smoggy city skyline", smog) >= 1
     assert relevance("cities in smog", smog) == 1  # plural "cities" does not match "city"; "smog" does
     assert relevance("street sweeper broom", {"tags": "broom, sweeper, cartoon, woman"}) == 0
-    assert relevance("cartoon broom", {"tags": "broom, cartoon"}) == 2  # asked for, so allowed
+    assert relevance("cartoon broom", {"tags": "broom, cartoon"}) == 0  # the channel look is real footage only
 
 
 def test_full_description_lists_used_sources():

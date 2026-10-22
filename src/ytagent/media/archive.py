@@ -18,7 +18,7 @@ import httpx
 from PIL import Image
 
 from ytagent.config import get_settings
-from ytagent.media.visuals import _NO_CREDIT, _OK_LICENSES, HEADERS, _cache_dir
+from ytagent.media.visuals import _NO_CREDIT, _OK_LICENSES, HEADERS, _cache_dir, _terms
 from ytagent.proc import NO_WINDOW
 
 log = logging.getLogger(__name__)
@@ -59,6 +59,10 @@ def find_films(subject: str) -> list[Film]:
         licence = meta.get("LicenseShortName", {}).get("value", "")
         duration = float(info.get("duration") or 0)
         if not _OK_LICENSES.match(licence) or duration < 8 or not info.get("url"):
+            continue
+        # The file must actually be about the subject: CLIP can't recognise lesser-known people, and a search
+        # for an obscure name otherwise returns loosely related videos (e.g. medical animations).
+        if not _terms(subject) & _terms(page["title"]):
             continue
         artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip() or "Unknown"
         credit = "" if _NO_CREDIT.match(licence) else \
@@ -116,7 +120,7 @@ def _cut(film: Film, start: float, seconds: float) -> Path | None:
 def find_archive_clip(subject: str, scene: str, seconds: float, used: set[str],
                       credits: list[str]) -> Path | None:
     """Best matching moment of a public-domain/CC film about `subject`, cut to `seconds`."""
-    from ytagent.media.clip_match import similarity
+    from ytagent.media.clip_match import score_with_realism
 
     films = find_films(subject)
     if not films:
@@ -129,7 +133,9 @@ def find_archive_clip(subject: str, scene: str, seconds: float, used: set[str],
     scored = [(m, img) for m, img in zip(moments, frames, strict=True) if img is not None]
     if not scored:
         return None
-    sims = similarity(f"a film still of {subject}, {scene}", [img for _, img in scored])
+    sims, is_real = score_with_realism(f"a film still of {subject}, {scene}", [img for _, img in scored])
+    # Archive film is real footage; drop animated/rendered frames.
+    sims = [s if real else -1.0 for s, real in zip(sims, is_real, strict=True)]
     # Small penalty for reusing a film already used in this video, to keep variety.
     used_films = {k.split("@")[0] for k in used if k.startswith("a")}
     ranked = sorted(((s - (0.02 if f"a{m[0].pageid}" in used_films else 0), m) for (m, _), s

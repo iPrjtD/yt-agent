@@ -13,6 +13,7 @@ import io
 import json
 import logging
 import re
+import subprocess
 import textwrap
 import time
 from collections.abc import Callable
@@ -25,6 +26,7 @@ from PIL import Image, ImageDraw
 
 from ytagent import brand
 from ytagent.config import get_settings
+from ytagent.proc import NO_WINDOW
 from ytagent.trends.base import USER_AGENT
 
 log = logging.getLogger(__name__)
@@ -32,6 +34,7 @@ log = logging.getLogger(__name__)
 CACHE_TTL_S = 24 * 3600  # Pixabay asks API clients to cache search results for 24 h
 ENDPOINTS = {"video": "https://pixabay.com/api/videos/", "photo": "https://pixabay.com/api/"}
 MIN_MATCH = 0.24      # CLIP cosine: ~0.27-0.31 clear match, <=0.20 unrelated (calibrated on Pixabay previews)
+MIN_SUBJECT_MATCH = 0.17  # Commons images whose file title names the subject (CLIP may not know the person)
 VIDEO_BONUS = 0.015   # prefer moving footage over a photo when they match about equally
 HEADERS = {"User-Agent": USER_AGENT}  # Wikimedia rejects requests without a descriptive User-Agent
 
@@ -51,6 +54,8 @@ class Candidate:
     credit: str = ""                 # attribution line when the licence needs one
     note: str = ""
     score: float = field(default=0.0)
+    preview_video: str = ""          # small video to grab a mid-clip frame from (thumbnails can hide animations)
+    duration: float = 0.0
 
 
 def _cache_dir() -> Path:
@@ -104,11 +109,11 @@ def _terms(text: str) -> set[str]:
 
 
 def relevance(query: str, hit: dict) -> int:
-    """How many meaningful query words appear in the hit's tags (0 for cartoon/abstract looks not asked for)."""
-    tags = _terms(hit.get("tags", ""))
-    if (tags & _UNREAL) - _terms(query):
+    """How many meaningful query words appear in the hit's tags (0 for anything tagged cartoon/abstract/3D)."""
+    raw = hit.get("tags", "").lower()
+    if set(re.findall(r"[a-z0-9]+", raw)) & _UNREAL:  # includes short tags such as "3d"
         return 0
-    return len(_terms(query) & tags)
+    return len(_terms(query) & _terms(raw))
 
 
 _PHOTO_HOST = "pixabay.com/get/"  # full-size Pixabay photos: strictly rate-limited
@@ -161,6 +166,8 @@ def pixabay_candidates(query: str, used: set[str], limit: int = 10) -> list[Cand
         for q in _queries(query):
             for hit in search(kind, q):
                 k = f"{prefix}{hit['id']}"
+                if kind == "video" and hit.get("type") == "animation":  # Pixabay labels clips "film" or "animation"
+                    continue
                 if k not in used and k not in seen and relevance(query, hit) >= 1:
                     seen[k] = hit
             if len(seen) >= limit:
@@ -175,7 +182,8 @@ def pixabay_candidates(query: str, used: set[str], limit: int = 10) -> list[Cand
                     continue
                 path = _cache_dir() / f"{hit['id']}_{rendition['height']}.mp4"
                 out.append(Candidate(k, thumb, lambda u=rendition["url"], p=path: _download(u, p), still=False,
-                                     note=hit.get("tags", "")))
+                                     note=hit.get("tags", ""), preview_video=videos.get("tiny", {}).get("url", ""),
+                                     duration=float(hit.get("duration") or 0)))
             else:
                 url = hit.get("largeImageURL") or hit.get("webformatURL")
                 if not url or not hit.get("previewURL"):
@@ -228,8 +236,11 @@ _OK_LICENSES = re.compile(r"^(public domain|pd|cc0|cc by(-sa)? [\d.]+|no restric
 _NO_CREDIT = re.compile(r"^(public domain|pd|cc0|no restrictions)", re.I)
 
 
-def commons_candidates(query: str, used: set[str], limit: int = 6) -> list[Candidate]:
-    """Wikimedia Commons photos with a reusable licence; CC licences carry a credit line."""
+def commons_candidates(query: str, used: set[str], limit: int = 6, require_title: bool = False) -> list[Candidate]:
+    """Wikimedia Commons photos with a reusable licence; CC licences carry a credit line.
+
+    `require_title`: the file name must mention the query (for named subjects that CLIP can't recognise).
+    """
     try:
         resp = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=30, headers=HEADERS, params={
             "action": "query", "generator": "search", "gsrsearch": f"{query} filetype:bitmap", "gsrnamespace": 6,
@@ -245,6 +256,8 @@ def commons_candidates(query: str, used: set[str], limit: int = 6) -> list[Candi
         licence = meta.get("LicenseShortName", {}).get("value", "")
         thumb = info.get("thumburl", "")
         if f"c{page['pageid']}" in used or not _OK_LICENSES.match(licence) or info.get("width", 0) < 800 or not thumb:
+            continue
+        if require_title and not _terms(query) & _terms(page["title"]):
             continue
         artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip() or "Unknown"
         credit = "" if _NO_CREDIT.match(licence) else \
@@ -269,33 +282,65 @@ def _preview(url: str) -> Image.Image | None:
         return None
 
 
-def rank(candidates: list[Candidate], description: str) -> list[Candidate]:
-    """Score candidates by CLIP similarity of their preview to the description; best first."""
-    from ytagent.media.clip_match import similarity
+def _mid_frame(cand: Candidate) -> Image.Image | None:
+    """A frame from the middle of a stock clip (its small preview file), falling back to the thumbnail."""
+    if cand.preview_video and cand.duration > 1:
+        cmd = [get_settings().env.ffmpeg_binary, "-hide_banner", "-loglevel", "error", "-ss",
+               f"{cand.duration / 2:.2f}", "-i", cand.preview_video, "-frames:v", "1", "-f", "image2pipe",
+               "-vcodec", "png", "-"]
+        try:
+            out = subprocess.run(cmd, capture_output=True, timeout=30, creationflags=NO_WINDOW)
+            if out.returncode == 0 and out.stdout:
+                return Image.open(io.BytesIO(out.stdout)).convert("RGB")
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    return _preview(cand.preview)
+
+
+def _blank(img: Image.Image) -> bool:
+    """Nearly uniform images (empty backgrounds, solid colours) are useless as footage."""
+    import numpy as np
+
+    return float(np.asarray(img.convert("L"), dtype=np.float32).std()) < 18
+
+
+def rank(candidates: list[Candidate], description: str, real_only: bool = True) -> list[Candidate]:
+    """Score candidates by CLIP similarity of their preview to the description; best first.
+
+    With `real_only`, previews CLIP judges to be cartoons / illustrations / 3D renders are dropped (the
+    channel's look is real footage, even when a script asks for a "sketch"), as are near-blank images.
+    """
+    from ytagent.media.clip_match import score_with_realism
 
     with ThreadPoolExecutor(max_workers=6) as pool:
-        previews = list(pool.map(_preview, [c.preview for c in candidates]))
-    kept = [(c, img) for c, img in zip(candidates, previews, strict=True) if img is not None]
+        previews = list(pool.map(_mid_frame, candidates))
+    kept = [(c, img) for c, img in zip(candidates, previews, strict=True) if img is not None and not _blank(img)]
     if not kept:
         return []
-    sims = similarity(f"a photo of {description}", [img for _, img in kept])
-    for (cand, _), sim in zip(kept, sims, strict=True):
+    sims, is_real = score_with_realism(f"a photo of {description}", [img for _, img in kept])
+    ranked = []
+    for (cand, _), sim, real in zip(kept, sims, is_real, strict=True):
+        if real_only and not real:
+            log.debug("drop %s (looks like a cartoon/render): %s", cand.key, cand.note[:50])
+            continue
         cand.score = sim + (0 if cand.still else VIDEO_BONUS)
-    return sorted((c for c, _ in kept), key=lambda c: c.score, reverse=True)
+        ranked.append(cand)
+    return sorted(ranked, key=lambda c: c.score, reverse=True)
 
 
 def find_visual(query: str, min_seconds: float, used: set[str], credits: list[str] | None = None,
                 person: str = "") -> Visual | None:
     """The best-matching real visual for a shot, or None if nothing clears the quality bar."""
     credits = credits if credits is not None else []
-    if person:  # motivation: a real photo of the person
-        pool = commons_candidates(person, used)
+    if person:  # a real photo of the subject (historical drawings/engravings of them are fine too)
+        pool = commons_candidates(person, used, require_title=True)
         description = f"{person}, portrait"
     else:
         pool = pixabay_candidates(query, used) + nasa_candidates(query, used) + commons_candidates(query, used, 4)
         description = query
-    for cand in rank(pool, description):
-        if cand.score < MIN_MATCH and not person:
+    for cand in rank(pool, description, real_only=not person):
+        # Subject images (title already names the subject; may be drawings/engravings) need a lower bar.
+        if cand.score < (MIN_SUBJECT_MATCH if person else MIN_MATCH):
             break
         path = cand.fetch()
         if path:

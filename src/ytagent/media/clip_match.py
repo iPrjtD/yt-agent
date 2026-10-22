@@ -62,3 +62,18 @@ def similarity(text: str, images: list[Image.Image]) -> list[float]:
     if not images:
         return []
     return (embed_images(images) @ embed_text(text)).tolist()
+
+
+REAL_PROMPT = "a real photograph or real video footage"
+FAKE_PROMPT = "a cartoon, illustration, clipart, vector graphic or 3D render"
+
+
+def score_with_realism(text: str, images: list[Image.Image]) -> tuple[list[float], list[bool]]:
+    """Similarity to `text`, plus whether each image looks like real footage rather than a cartoon/render."""
+    if not images:
+        return [], []
+    emb = embed_images(images)
+    sims = (emb @ embed_text(text)).tolist()
+    real = emb @ embed_text(REAL_PROMPT)
+    fake = emb @ embed_text(FAKE_PROMPT)
+    return sims, [bool(r >= f) for r, f in zip(real, fake, strict=True)]
