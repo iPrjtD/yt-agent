@@ -9,6 +9,7 @@ __pycache__/
 
 # Secrets and local state
 .env
+*.env
 secrets/
 *.token.json
 
