@@ -14,7 +14,7 @@ def _sig(source: str, strength: float, related: int = 0, hours_ago: float = 0) -
 
 def _assessment(**kw) -> TopicAssessment:
     base = dict(summary="s", category="tech", niche_fit=8, ad_safety=9, sensitive=False, blocked=False,
-                evergreen=False, best_format="short", angle="a")
+                evergreen=False, content_format="facts", best_format="short", angle="a")
     return TopicAssessment(**{**base, **kw})
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import timedelta
 from typing import Literal
 
@@ -28,9 +29,32 @@ class TopicAssessment(BaseModel):
     sensitive: bool
     blocked: bool
     evergreen: bool
-    content_format: Literal["facts", "funny", "motivation", "story", "trending"] | None = None
+    content_format: Literal["facts", "funny", "motivation", "story", "trending"]
     best_format: Literal["short", "long", "both"]
     angle: str
+
+
+_FORMATS = {"facts", "funny", "motivation", "story", "trending"}
+
+
+def _hint_format(topic: Topic) -> str:
+    """Format hinted by the idea source ("format hint: motivation"), else facts."""
+    for sig in topic.signals:
+        m = re.search(r"format hint: (\w+)", sig.raw.get("context", ""))
+        if m and m.group(1) in _FORMATS:
+            return m.group(1)
+    return "facts"
+
+
+def _stored(topic: Topic) -> TopicAssessment | None:
+    """The saved assessment; older ones without content_format get it from the source hint."""
+    if not topic.llm:
+        return None
+    data = {k: v for k, v in topic.llm.items() if v is not None}
+    data.setdefault("content_format", _hint_format(topic))
+    if "content_format" not in topic.llm or topic.llm["content_format"] is None:
+        topic.llm = {**topic.llm, "content_format": data["content_format"]}
+    return TopicAssessment(**data)
 
 
 def heuristic(signals: list[TrendSignal], first_seen_hours: float, half_life_h: float) -> dict[str, float]:
@@ -83,14 +107,14 @@ def score_topics(s: Session, settings: Settings, llm_limit: int = 20) -> dict[st
         recent = [x for x in topic.signals if x.observed_at >= now - SIGNAL_WINDOW] or topic.signals
         hours = (now - topic.first_seen_at).total_seconds() / 3600
         h = heuristic(recent, hours, settings.trends.scoring.freshness_half_life_h)
-        assessment = TopicAssessment(**topic.llm) if topic.llm else None
+        assessment = _stored(topic)
         ranked.append((combine(h, assessment, settings), topic, recent, h))
 
     assessed = rejected = 0
     # Evergreen ideas first (the channel's core content), then everything else by provisional score.
     ranked.sort(key=lambda r: (any(sig.source in IDEA_SOURCES for sig in r[2]), r[0]), reverse=True)
     for provisional, topic, recent, h in ranked:
-        assessment = TopicAssessment(**topic.llm) if topic.llm else None
+        assessment = _stored(topic)
         if assessment is None and assessed < llm_limit:
             try:
                 assessment = assess(topic, recent, settings)
