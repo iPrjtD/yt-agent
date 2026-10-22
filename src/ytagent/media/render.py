@@ -14,6 +14,7 @@ from ytagent.brand import FONTS
 from ytagent.brand import OUT as BRAND_DIR
 from ytagent.config import get_settings
 from ytagent.media.voice import Word
+from ytagent.proc import NO_WINDOW
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def pick_music(seed: int, mood: str = "") -> Path | None:
 def ffmpeg(args: list[str], cwd: Path | None = None) -> None:
     binary = get_settings().env.ffmpeg_binary
     cmd = [binary, "-hide_banner", "-loglevel", "error", "-y", *args]
-    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, creationflags=NO_WINDOW)
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr.strip()[-800:]}")
 
@@ -54,7 +55,7 @@ def probe(path: Path) -> dict:
     binary = Path(get_settings().env.ffmpeg_binary)
     ffprobe = str(binary.with_name("ffprobe" + binary.suffix)) if binary.parent != Path(".") else "ffprobe"
     out = subprocess.run([ffprobe, "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)],
-                         capture_output=True, text=True, check=True)
+                         capture_output=True, text=True, check=True, creationflags=NO_WINDOW)
     return json.loads(out.stdout)
 
 

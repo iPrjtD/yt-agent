@@ -19,6 +19,7 @@ from PIL import Image
 
 from ytagent.config import get_settings
 from ytagent.media.visuals import _NO_CREDIT, _OK_LICENSES, HEADERS, _cache_dir
+from ytagent.proc import NO_WINDOW
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ def _frame(film: Film, at: float) -> Image.Image | None:
     cmd = [_ffmpeg(), "-hide_banner", "-loglevel", "error", "-user_agent", HEADERS["User-Agent"],
            "-ss", f"{at:.2f}", "-i", film.preview, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"]
     try:
-        out = subprocess.run(cmd, capture_output=True, timeout=60)
+        out = subprocess.run(cmd, capture_output=True, timeout=60, creationflags=NO_WINDOW)
         img = Image.open(io.BytesIO(out.stdout)).convert("RGB") if out.returncode == 0 and out.stdout else None
     except (subprocess.TimeoutExpired, OSError):
         img = None
@@ -105,7 +106,7 @@ def _cut(film: Film, start: float, seconds: float) -> Path | None:
     cmd = [_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-user_agent", HEADERS["User-Agent"],
            "-ss", f"{start:.2f}", "-i", film.url, "-t", f"{seconds:.2f}", "-an", "-c:v", "libx264",
            "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", str(path)]
-    out = subprocess.run(cmd, capture_output=True, timeout=300)
+    out = subprocess.run(cmd, capture_output=True, timeout=300, creationflags=NO_WINDOW)
     if out.returncode == 0 and path.exists() and path.stat().st_size > 10_000:
         return path
     path.unlink(missing_ok=True)

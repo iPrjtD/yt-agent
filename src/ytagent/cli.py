@@ -21,6 +21,74 @@ short_app = typer.Typer(no_args_is_help=True, help="Produce Shorts.")
 app.add_typer(short_app, name="short")
 llm_app = typer.Typer(no_args_is_help=True, help="Language model setup.")
 app.add_typer(llm_app, name="llm")
+autopilot_app = typer.Typer(no_args_is_help=True, help="Scheduled, hands-off production.")
+app.add_typer(autopilot_app, name="autopilot")
+
+
+@autopilot_app.command("run")
+def autopilot_run(job: str = typer.Argument(..., help="ideas | produce | cleanup")) -> None:
+    """Run one autopilot job now (this is what the scheduled tasks call)."""
+    from ytagent.autopilot import run
+
+    console.print(run(job))
+
+
+@autopilot_app.command("install")
+def autopilot_install() -> None:
+    """Register the Windows scheduled tasks (current user, no admin rights needed)."""
+    from ytagent.schedule import install
+
+    for line in install():
+        console.print(f"[green]installed[/] {line}")
+
+
+@autopilot_app.command("uninstall")
+def autopilot_uninstall() -> None:
+    """Remove the scheduled tasks."""
+    from ytagent.schedule import uninstall
+
+    for name in uninstall():
+        console.print(f"removed {name}")
+
+
+@autopilot_app.command("status")
+def autopilot_status() -> None:
+    """Scheduled tasks, next runs, Gemini quota and Shorts waiting for you."""
+    from ytagent.autopilot import gemini_writer_available, write_ready_list
+    from ytagent.schedule import status
+
+    table = Table("task", "next run", "last result")
+    for row in status():
+        table.add_row(*row)
+    console.print(table)
+    console.print(f"Gemini writer available now: {gemini_writer_available()}")
+    console.print(f"Ready list: {write_ready_list()}")
+
+
+@short_app.command("done")
+def short_done(video_id: int) -> None:
+    """Mark a Short as uploaded/published (removes it from READY.md)."""
+    _set_video_status(video_id, "published")
+
+
+@short_app.command("reject")
+def short_reject(video_id: int) -> None:
+    """Mark a Short as rejected (not to be uploaded)."""
+    _set_video_status(video_id, "rejected")
+
+
+def _set_video_status(video_id: int, status: str) -> None:
+    from ytagent.autopilot import write_ready_list
+    from ytagent.db import session_scope
+    from ytagent.models import Video
+
+    with session_scope() as s:
+        video = s.get(Video, video_id)
+        if video is None:
+            raise typer.BadParameter(f"no video {video_id}")
+        video.status = status
+    write_ready_list()
+    console.print(f"video {video_id} -> {status}")
 
 
 @llm_app.command("gemini-models")
@@ -216,3 +284,7 @@ def trends_run(llm_limit: int = 20) -> None:
     """collect + score in one go (what the scheduler will call)."""
     trends_collect()
     trends_score(llm_limit=llm_limit)
+
+
+if __name__ == "__main__":
+    app()

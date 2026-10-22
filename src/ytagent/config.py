@@ -90,6 +90,14 @@ class VideoCfg(BaseModel):
     max_short_seconds: int = 59
 
 
+class AutopilotCfg(BaseModel):
+    ideas_every_hours: int = 3
+    produce_at: list[str] = Field(default_factory=lambda: ["01:00", "03:30"])
+    cleanup_at: str = "05:30"
+    score_limit: int = 12
+    require_gemini_writer: bool = True
+
+
 class PublishingCfg(BaseModel):
     mode: str = "manual"
     contains_synthetic_media: bool = False
@@ -113,6 +121,7 @@ class Settings(BaseModel):
     captions: CaptionsCfg = Field(default_factory=CaptionsCfg)
     video: VideoCfg = Field(default_factory=VideoCfg)
     publishing: PublishingCfg = Field(default_factory=PublishingCfg)
+    autopilot: AutopilotCfg = Field(default_factory=AutopilotCfg)
     paths: PathsCfg = Field(default_factory=PathsCfg)
     env: Env = Field(default_factory=Env)
 

@@ -120,5 +120,12 @@ publishing:
   mode: manual
   contains_synthetic_media: false  # true only for realistic AI visuals or voice imitating real people
 
+autopilot:
+  ideas_every_hours: 3             # collect + score ideas
+  produce_at: ["01:00", "03:30"]   # one Short per time, overnight (local time)
+  cleanup_at: "05:30"
+  score_limit: 12                  # topics assessed per ideas run (local model)
+  require_gemini_writer: true      # postpone a Short rather than write it with the weaker local model
+
 paths:
   data_dir: data

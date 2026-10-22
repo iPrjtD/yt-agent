@@ -12,6 +12,7 @@ import httpx
 from sqlalchemy import text
 
 from ytagent.config import ROOT, Settings
+from ytagent.proc import NO_WINDOW
 
 
 @dataclass
@@ -23,7 +24,7 @@ class Check:
 
 
 def _run(cmd: list[str]) -> str:
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    out = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
     return (out.stdout or out.stderr).strip().splitlines()[0] if (out.stdout or out.stderr) else ""
 
 
