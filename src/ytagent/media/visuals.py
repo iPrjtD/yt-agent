@@ -106,7 +106,8 @@ def _download(url: str, path: Path, attempts: int = 3) -> Path | None:
     for attempt in range(attempts):
         try:
             # Wikimedia rejects requests without a descriptive User-Agent (403).
-            with httpx.stream("GET", url, timeout=120, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as resp:
+            headers = {"User-Agent": USER_AGENT}
+            with httpx.stream("GET", url, timeout=120, follow_redirects=True, headers=headers) as resp:
                 resp.raise_for_status()
                 with tmp.open("wb") as fh:
                     for chunk in resp.iter_bytes():
