@@ -97,7 +97,7 @@ trends:
 
 voice:
   # Buzzbee narrates every video in ONE voice (channel identity); only the emotion changes per line.
-  host_voice: Puck               # Gemini prebuilt voice; samples in data/buzzbee_voice_*.mp3
+  host_voice: Puck               # Buzzbee's voice (chosen 2026-10-25); keep it for channel identity
   host_style: "the channel's cheerful, curious cartoon bee host"
   require_host_voice: true       # postpone a Short rather than switch to a different (Kokoro) voice
   gemini_tts_models: [gemini-3.1-flash-tts-preview, gemini-3.8-flash-tts]
