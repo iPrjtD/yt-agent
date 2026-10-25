@@ -65,6 +65,30 @@ def autopilot_status() -> None:
     console.print(f"Ready list: {write_ready_list()}")
 
 
+@short_app.command("upload")
+def short_upload(video_id: int) -> None:
+    """Upload a finished Short to YouTube as private, into the "Pending review" playlist."""
+    from pathlib import Path
+
+    from ytagent.db import session_scope
+    from ytagent.models import Video
+    from ytagent.publish import upload_private
+    from ytagent.script import ShortScript
+
+    with session_scope() as s:
+        video = s.get(Video, video_id)
+        if video is None:
+            raise typer.BadParameter(f"no video {video_id}")
+        if video.youtube_id:
+            console.print(f"already uploaded: https://youtu.be/{video.youtube_id}")
+            return
+        final = Path(video.meta["dir"]) / "final.mp4"
+        script = ShortScript.model_validate({"hook_visual_query": "", **video.script})
+        youtube_id = upload_private(final, script, video.description)
+        video.youtube_id = youtube_id
+    console.print(f"[green]uploaded (private, Pending review):[/] https://youtu.be/{youtube_id}")
+
+
 @short_app.command("done")
 def short_done(video_id: int) -> None:
     """Mark a Short as uploaded/published (removes it from READY.md)."""
