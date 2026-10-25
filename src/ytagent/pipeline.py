@@ -286,7 +286,7 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         music = pick_music(video_id, style.music if style else "")
         final = render_short(segments, narration.wav, narration.words, work, labels, music,
                              memes=memes, buzz_lines=buzz_lines, reactions=reactions, sfx=sfx, host_dir=host_dir)
-        problems = qa(final)
+        problems = qa(final, narration.duration)
         description = full_description(script, brief.sources, credits)
         write_package(work, script, description)
 

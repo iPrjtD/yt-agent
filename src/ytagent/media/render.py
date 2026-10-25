@@ -184,55 +184,67 @@ def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], wo
     if voice_wav.resolve() != (work / "voice.wav").resolve():
         shutil.copy(voice_wav, work / "voice.wav")
 
-    # The badge is looped for the whole video: a single-frame overlay can drop out after concat timestamp jumps.
+    # Video effects and the audio mix run as SEPARATE FFmpeg passes, then get muxed: in one combined
+    # filter graph FFmpeg silently dropped ~20% of the audio (the "voice breaking" bug).
     if host_dir:  # talking, blinking host for the whole video
-        inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-framerate", str(fps), "-i",
-                  str(Path(host_dir) / "%05d.png")]
-        graph = "[0:v][2:v]overlay=20:70:eof_action=repeat[v0];"
-    else:
-        inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-loop", "1", "-i", "mascot.png"]
-        graph = "[2:v]scale=170:-1[m];[0:v][m]overlay=36:90:shortest=1[v0];"
-    n_in = 3
+        v_inputs = ["-i", "video_only.mp4", "-framerate", str(fps), "-i", str(Path(host_dir) / "%05d.png")]
+        vgraph = "[0:v][1:v]overlay=20:70:eof_action=repeat[v0];"
+    else:  # static badge, looped (a single-frame overlay can drop out after concat timestamp jumps)
+        v_inputs = ["-i", "video_only.mp4", "-loop", "1", "-i", "mascot.png"]
+        vgraph = "[1:v]scale=170:-1[m];[0:v][m]overlay=36:90:shortest=1[v0];"
+    n_in = 2
     # Buzzbee reactions: PNG sequences shifted to their start time; captions are drawn last, on top.
     last = "v0"
     for j, r in enumerate(reactions):
-        inputs += ["-framerate", str(fps), "-i", str(Path(r.frames_dir) / "%04d.png")]
+        v_inputs += ["-framerate", str(fps), "-i", str(Path(r.frames_dir) / "%04d.png")]
         x, y = REACTION_XY
-        graph += (f"[{n_in}:v]setpts=PTS-STARTPTS+{r.start:.3f}/TB[r{j}];"
-                  f"[{last}][r{j}]overlay={x}:{y}:eof_action=pass[vr{j}];")
+        vgraph += (f"[{n_in}:v]setpts=PTS-STARTPTS+{r.start:.3f}/TB[r{j}];"
+                   f"[{last}][r{j}]overlay={x}:{y}:eof_action=pass[vr{j}];")
         last = f"vr{j}"
         n_in += 1
-    graph += f"[{last}]ass=captions.ass:fontsdir=fonts[v];"
+    vgraph += f"[{last}]ass=captions.ass:fontsdir=fonts[v]"
+    ffmpeg([*v_inputs, "-filter_complex", vgraph, "-map", "[v]", "-an", "-t", f"{total:.3f}", "-c:v", "libx264",
+            "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-r", str(fps), "video_fx.mp4"], cwd=work)
 
-    mix = ["[1:a]"]
+    a_inputs, mix, agraph, n_in = ["-i", "voice.wav"], ["[0:a]"], "", 1
     if music:
         shutil.copy(music, work / f"music{music.suffix}")
-        inputs += ["-stream_loop", "-1", "-i", f"music{music.suffix}"]
+        a_inputs += ["-stream_loop", "-1", "-i", f"music{music.suffix}"]
         fade_at = max(0.0, total - 1.5)
-        graph += f"[{n_in}:a]volume={MUSIC_VOLUME},afade=t=in:d=0.5,afade=t=out:st={fade_at:.2f}:d=1.5[bg];"
+        agraph += f"[{n_in}:a]volume={MUSIC_VOLUME},afade=t=in:d=0.5,afade=t=out:st={fade_at:.2f}:d=1.5[bg];"
         mix.append("[bg]")
         n_in += 1
     for j, (at, path) in enumerate(sfx):
-        inputs += ["-i", str(path)]
+        a_inputs += ["-i", str(path)]
         ms = max(0, int(at * 1000))
-        graph += f"[{n_in}:a]aresample=48000,volume={SFX_VOLUME},adelay=delays={ms}:all=1[fx{j}];"
+        agraph += f"[{n_in}:a]aresample=48000,volume={SFX_VOLUME},adelay=delays={ms}:all=1[fx{j}];"
         mix.append(f"[fx{j}]")
         n_in += 1
     if len(mix) > 1:
-        graph += (f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:dropout_transition=0:normalize=0,"
-                  "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]")
+        agraph += f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:dropout_transition=0:normalize=0,"
     else:
-        graph += "[1:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]"
+        agraph += "[0:a]"
+    agraph += "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]"
+    ffmpeg([*a_inputs, "-filter_complex", agraph, "-map", "[a]", "-c:a", "pcm_s16le", "audio_mix.wav"], cwd=work)
+
     final = work / "final.mp4"
-    ffmpeg([*inputs, "-filter_complex", graph,
-            "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-            "-pix_fmt", "yuv420p", "-r", str(fps), "-c:a", "aac", "-b:a", "192k", "-shortest",
-            "-movflags", "+faststart", final.name], cwd=work)
+    ffmpeg(["-i", "video_fx.mp4", "-i", "audio_mix.wav", "-map", "0:v", "-map", "1:a", "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", final.name], cwd=work)
+    for tmp in ("video_fx.mp4", "audio_mix.wav"):
+        (work / tmp).unlink(missing_ok=True)
     return final
 
 
-def qa(final: Path) -> list[str]:
-    """Return problems found (empty list = pass)."""
+def decoded_audio_seconds(path: Path) -> float:
+    """Seconds of audio actually present (decoded), which can be less than the container's stated duration."""
+    out = subprocess.run([get_settings().env.ffmpeg_binary, "-v", "error", "-i", str(path), "-vn", "-ac", "1",
+                          "-ar", "16000", "-f", "s16le", "-"], capture_output=True, creationflags=NO_WINDOW)
+    return len(out.stdout) / 2 / 16000
+
+
+def qa(final: Path, narration_seconds: float | None = None) -> list[str]:
+    """Return problems found (empty list = pass). With `narration_seconds`, also checks that the whole
+    narration is really in the file (no dropped audio)."""
     cfg = get_settings().video
     info = probe(final)
     problems = []
@@ -247,4 +259,8 @@ def qa(final: Path) -> list[str]:
         problems.append(f"duration {duration:.1f}s > {cfg.max_short_seconds}s")
     if duration < 15:
         problems.append(f"duration {duration:.1f}s is too short")
+    if narration_seconds and audio:
+        heard = decoded_audio_seconds(final)
+        if heard < narration_seconds - 0.5:
+            problems.append(f"audio has gaps: {heard:.1f}s decoded of {narration_seconds:.1f}s narration")
     return problems
