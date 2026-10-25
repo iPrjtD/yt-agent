@@ -10,10 +10,9 @@
   timed to the spoken words. Never an unrelated clip: AI scene, or hold the previous shot.
 - Narration slightly sped up (max 8%, pitch kept) when a take would exceed 59 s; scripts 100-130 words.
 - Overnight Produce tasks re-enabled.
+- AI cartoon scenes live (Cloudflare Workers AI, FLUX.1 schnell, claymation style): drawn first for historical
+  moments and whenever real stock is weaker than a strong match (CLIP 0.27). Daily cap 120.
 
 ## Waiting on the user
 
-1. Free Cloudflare account for AI cartoon scenes: put `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`
-   (Workers AI permission) in `.env`. The code (`providers/images.py`, FLUX.1 schnell, daily cap 120) activates
-   automatically.
-2. Music tracks in `assets/music/<mood>/`; submit the YouTube API audit (`docs/YOUTUBE_API_AUDIT.md`).
+1. Music tracks in `assets/music/<mood>/`; submit the YouTube API audit (`docs/YOUTUBE_API_AUDIT.md`).
