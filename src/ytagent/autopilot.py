@@ -68,7 +68,7 @@ def _ollama_ok() -> bool:
         return False
 
 
-def ensure_services() -> None:
+def ensure_services(need_models: bool = True) -> None:
     """Start Docker Desktop / the containers / Ollama if they are not up yet (e.g. right after boot)."""
     if not _docker_ok() and DOCKER_DESKTOP.exists():
         log.info("starting Docker Desktop")
@@ -81,7 +81,7 @@ def ensure_services() -> None:
         raise RuntimeError("Docker is not running")
     subprocess.run(["docker", "compose", "up", "-d", "db", "searxng"], cwd=ROOT, capture_output=True,
                    creationflags=NO_WINDOW)
-    if not _ollama_ok():
+    if need_models and not _ollama_ok():
         exe = shutil.which("ollama") or r"D:\tools\Ollama\ollama.exe"
         log.info("starting Ollama server")
         subprocess.Popen([exe, "serve"], creationflags=NO_WINDOW, env={**os.environ,
@@ -128,12 +128,19 @@ def write_ready_list() -> Path:
     with session_scope() as s:
         videos = s.scalars(select(Video).where(Video.status == "pending_review").order_by(Video.id)).all()
         rows = [f"| {v.id} | {v.title} | {(v.script or {}).get('pillar', '')} | "
-                f"`{Path((v.meta or {}).get('dir', '')) / 'final.mp4'}` |" for v in videos]
+                + (f"https://youtu.be/{v.youtube_id} (private)" if v.youtube_id
+                   else f"`{Path((v.meta or {}).get('dir', '')) / 'final.mp4'}`") + " |" for v in videos]
+        scheduled = s.scalars(select(Video).where(Video.status == "scheduled").order_by(Video.publish_at)).all()
+        upcoming = [f"| {v.id} | {v.title} | {v.publish_at:%a %d %b %H:%M} UTC | https://youtu.be/{v.youtube_id} |"
+                    for v in scheduled if v.publish_at]
     path.write_text(
         "# Shorts ready for review\n\n"
-        "Upload in YouTube Studio with the title/description/tags from `publish.txt` in each folder, then run\n"
-        "`uv run ytagent short done <id>` (or `short reject <id>`).\n\n"
-        "| id | title | format | video |\n|---|---|---|---|\n" + "\n".join(rows) + "\n", encoding="utf-8")
+        "In YouTube Studio → Content → Playlists → **Pending review**: watch each Short, then add it to the\n"
+        "**Approved** playlist (it gets published at the next slot) or **Rejected**. Shorts without a YouTube\n"
+        "link were not uploaded: upload `final.mp4` yourself with the text in `publish.txt`.\n\n"
+        "| id | title | format | video |\n|---|---|---|---|\n" + "\n".join(rows) + "\n\n"
+        "## Scheduled\n\n| id | title | goes live | link |\n|---|---|---|---|\n" + "\n".join(upcoming) + "\n",
+        encoding="utf-8")
     return path
 
 
@@ -209,16 +216,27 @@ def job_cleanup() -> dict:
     return {"cache_files_removed": removed}
 
 
-JOBS = {"ideas": job_ideas, "produce": job_produce, "cleanup": job_cleanup}
+def job_review() -> dict:
+    """Publish/schedule Shorts you moved to "Approved"; handle "Rejected"; notice Shorts that went live."""
+    from ytagent.review import sync
+
+    result = sync()
+    for title in result.get("scheduled", []) + result.get("published_now", []):
+        notify("Buzzbee: Short scheduled 🐝", title)
+    return result
+
+
+JOBS = {"ideas": job_ideas, "produce": job_produce, "cleanup": job_cleanup, "review": job_review}
+LIGHT_JOBS = {"review"}  # quick API jobs: own lock, no local models needed
 
 
 def run(job: str) -> dict:
     log_path = setup_logging()
     log.info("=== %s ===", job)
     try:
-        with lock():
+        with lock("review" if job in LIGHT_JOBS else "autopilot"):
             if job != "cleanup":
-                ensure_services()
+                ensure_services(need_models=job not in LIGHT_JOBS)
             result = JOBS[job]()
             write_ready_list()
     except Exception as exc:

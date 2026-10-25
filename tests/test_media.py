@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from ytagent.media.render import build_ass, caption_chunks
 from ytagent.media.voice import Word, align_words
 from ytagent.publish import full_description
@@ -99,6 +101,21 @@ def test_historic_shots_are_recognised():
     assert HISTORIC.search("Mughal emperor in his court")
     assert not HISTORIC.search("modern surgeon in an operating room")
     assert not HISTORIC.search("crowd laughing in a theatre")
+
+
+def test_next_slot_respects_lead_time_and_gap():
+    from datetime import datetime
+
+    from ytagent.review import next_slot
+
+    tz = "Asia/Kolkata"  # UTC+5:30
+    now = datetime(2026, 10, 25, 7, 0, tzinfo=UTC)  # 12:30 local
+    first = next_slot(now, ["13:00", "19:30"], [], tz, 4)
+    assert first == datetime(2026, 10, 25, 7, 30, tzinfo=UTC)  # 13:00 local, 30 min ahead
+    second = next_slot(now, ["13:00", "19:30"], [first], tz, 4)
+    assert second == datetime(2026, 10, 25, 14, 0, tzinfo=UTC)  # 19:30 local
+    late = datetime(2026, 10, 25, 7, 20, tzinfo=UTC)  # 12:50 local: 13:00 is too close
+    assert next_slot(late, ["13:00", "19:30"], [], tz, 4) == second
 
 
 def test_parse_dyk_extracts_fact_and_article():

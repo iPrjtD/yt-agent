@@ -13,6 +13,10 @@
 - AI cartoon scenes live (Cloudflare Workers AI, FLUX.1 schnell, claymation style): drawn first for historical
   moments and whenever real stock is weaker than a strong match (CLIP 0.27). Daily cap 120.
 
+- Automatic publishing: publishing.mode = api. New Shorts upload privately to the "Pending review" playlist;
+  the Review task (every 10 min) schedules Shorts moved to "Approved" for the next slot (13:00 / 19:30 IST,
+  4 h apart) and files them in their topic playlist; "Rejected" ones are never published. Nothing is deleted.
+
 ## Waiting on the user
 
 1. Music tracks in `assets/music/<mood>/`; submit the YouTube API audit (`docs/YOUTUBE_API_AUDIT.md`).

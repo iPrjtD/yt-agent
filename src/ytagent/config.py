@@ -113,6 +113,10 @@ class AutopilotCfg(BaseModel):
 class PublishingCfg(BaseModel):
     mode: str = "manual"
     contains_synthetic_media: bool = False
+    publish_mode: str = "slot"       # slot: schedule approved Shorts for the next slot | now: publish at once
+    slots: list[str] = Field(default_factory=lambda: ["13:00", "19:30"])
+    timezone: str = "Asia/Kolkata"
+    min_gap_hours: float = 4.0
 
 
 class FormatCfg(BaseModel):

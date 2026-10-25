@@ -66,6 +66,10 @@ def tasks() -> list[dict]:
                     "description": f"Buzzbee: make one Short at {at}"})
     out.append({"name": "Cleanup", "job": "cleanup", "start": f"{today}T{cfg.cleanup_at}:00", "repetition": "",
                 "description": "Buzzbee: clear old cache files"})
+    out.append({"name": "Review", "job": "review", "start": f"{today}T00:05:00",
+                "repetition": """
+      <Repetition><Interval>PT10M</Interval><Duration>P1D</Duration></Repetition>""",
+                "description": "Buzzbee: publish Shorts you approved in YouTube Studio (every 10 min)"})
     return out
 
 

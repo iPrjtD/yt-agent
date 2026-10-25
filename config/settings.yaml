@@ -118,10 +118,15 @@ video:
   max_short_seconds: 90      # QA limit; YouTube Shorts allow up to 3 minutes
 
 publishing:
-  # manual: render + publish package for upload in Studio (until the YouTube API audit passes)
-  # api: private upload to "Pending review", then the agent publishes what you approve
-  mode: manual
+  # api: each new Short is uploaded privately to "Pending review"; move it to "Approved" (or "Rejected")
+  #      in YouTube Studio and the review job (every 10 min) publishes it at the next slot.
+  # manual: render + publish.txt only; you upload in Studio yourself.
+  mode: api
   contains_synthetic_media: false  # true only for realistic AI visuals or voice imitating real people
+  publish_mode: slot               # slot: next free slot below | now: publish as soon as you approve
+  slots: ["13:00", "19:30"]        # local times when India-first Shorts audiences are most active
+  timezone: Asia/Kolkata
+  min_gap_hours: 4                 # never two Shorts closer than this
 
 autopilot:
   ideas_every_hours: 3             # collect + score ideas
