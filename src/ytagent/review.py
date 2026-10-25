@@ -64,9 +64,11 @@ def _remove_from(yt, playlist_items: list[dict], video_id: str) -> None:
 
 
 def _add_to(yt, playlist_id: str | None, video_id: str) -> None:
-    if playlist_id:
-        yt.playlistItems().insert(part="snippet", body={"snippet": {
-            "playlistId": playlist_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
+    if not playlist_id:
+        log.warning("topic playlist missing on the channel; run `ytagent brand apply --yes` to create it")
+        return
+    yt.playlistItems().insert(part="snippet", body={"snippet": {
+        "playlistId": playlist_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
 
 
 def _video_status(yt, video_ids: list[str]) -> dict[str, dict]:
