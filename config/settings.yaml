@@ -97,7 +97,7 @@ trends:
 
 voice:
   # Buzzbee narrates every video in ONE voice (channel identity); only the emotion changes per line.
-  host_voice: Puck               # Buzzbee's voice (chosen 2026-10-25); keep it for channel identity
+  host_voice: Charon             # Buzzbee's voice (chosen 2026-10-25): deep, informative storyteller
   host_style: "a warm, versatile storyteller who matches the mood of every line: calm, sincere and grounded for serious or sad moments, lively and playful for fun facts"
   require_host_voice: true       # postpone a Short rather than switch to a different (Kokoro) voice
   gemini_tts_models: [gemini-3.1-flash-tts-preview, gemini-3.8-flash-tts]
