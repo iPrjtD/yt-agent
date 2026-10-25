@@ -163,8 +163,9 @@ SFX_VOLUME = 0.45
 def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], work: Path,
                  labels: list[tuple[float, float, str]], music: Path | None = None,
                  memes: list[tuple[float, float, str, str]] = (), buzz_lines: frozenset[int] = frozenset(),
-                 reactions: list = (), sfx: list[tuple[float, Path]] = ()) -> Path:
-    """`reactions` are media.reactions.Reaction with rendered frames; `sfx` are (time, file) pairs."""
+                 reactions: list = (), sfx: list[tuple[float, Path]] = (), host_dir: Path | None = None) -> Path:
+    """`reactions` are media.reactions.Reaction with rendered frames; `sfx` are (time, file) pairs;
+    `host_dir` holds the talking corner-host frames (else a static badge)."""
     cfg = get_settings().video
     w, h, fps = cfg.width, cfg.height, cfg.fps
     parts = []
@@ -184,8 +185,13 @@ def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], wo
         shutil.copy(voice_wav, work / "voice.wav")
 
     # The badge is looped for the whole video: a single-frame overlay can drop out after concat timestamp jumps.
-    inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-loop", "1", "-i", "mascot.png"]
-    graph = "[2:v]scale=170:-1[m];[0:v][m]overlay=36:90:shortest=1[v0];"
+    if host_dir:  # talking, blinking host for the whole video
+        inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-framerate", str(fps), "-i",
+                  str(Path(host_dir) / "%05d.png")]
+        graph = "[0:v][2:v]overlay=20:70:eof_action=repeat[v0];"
+    else:
+        inputs = ["-i", "video_only.mp4", "-i", "voice.wav", "-loop", "1", "-i", "mascot.png"]
+        graph = "[2:v]scale=170:-1[m];[0:v][m]overlay=36:90:shortest=1[v0];"
     n_in = 3
     # Buzzbee reactions: PNG sequences shifted to their start time; captions are drawn last, on top.
     last = "v0"

@@ -143,29 +143,71 @@ def _trim_silence(samples: np.ndarray, sr: int, threshold: float = 0.01, pad: fl
     return samples[a:b]
 
 
-def narrate_lines(lines: list, out_dir: Path, fmt) -> Narration:
-    """Expressive one-take narration (Gemini TTS, narrator + Buzzbee) with Kokoro line-by-line fallback.
+MAX_SPEEDUP = 1.08
 
-    `lines` are providers.tts.Line items; `fmt` is the format's FormatCfg (voices, style).
+
+def _time_stretch(samples: np.ndarray, sr: int, factor: float) -> np.ndarray:
+    """Tempo change without pitch change (FFmpeg atempo); timestamps scale exactly by 1/factor."""
+    import subprocess
+
+    from ytagent.proc import NO_WINDOW
+
+    pcm = (np.clip(samples, -1, 1) * 32767).astype(np.int16).tobytes()
+    out = subprocess.run([get_settings().env.ffmpeg_binary, "-v", "error", "-f", "s16le", "-ar", str(sr), "-ac", "1",
+                          "-i", "-", "-af", f"atempo={factor:.4f}", "-f", "s16le", "-"], input=pcm,
+                         capture_output=True, creationflags=NO_WINDOW)
+    if out.returncode != 0 or not out.stdout:
+        return samples
+    return np.frombuffer(out.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+class VoiceUnavailable(RuntimeError):
+    """Buzzbee's voice could not be produced (quota/outage); the caller postpones rather than change voice."""
+
+
+def spoke_extra(script_words: int, heard_words: int, tolerance: float = 1.2) -> bool:
+    """A take that says clearly more than the script (e.g. read the direction aloud) is unusable."""
+    return heard_words > script_words * tolerance + 3
+
+
+def narrate_lines(lines: list, out_dir: Path, fmt=None) -> Narration:
+    """Buzzbee's voice for the whole Short in one take (Gemini TTS), verified with Whisper.
+
+    Every take is transcribed; one that contains extra spoken words is rejected and the next model is tried.
+    If no good take exists and `voice.require_host_voice` is on, raises VoiceUnavailable (identity first);
+    otherwise falls back to the local Kokoro voice.
     """
     from ytagent.providers.tts import synthesize
 
     cfg = get_settings().voice
     texts = [ln.text for ln in lines]
-    result = synthesize(lines, fmt.gemini_voice if fmt else "Puck", cfg.buzzbee_voice,
-                        fmt.style if fmt else "a friendly, engaging host", cfg.gemini_tts_models)
-    if result is None:
+    n_script = sum(len(t.split()) for t in texts)
+    good = None
+    for samples, sr, model in synthesize(lines, cfg.host_voice, cfg.host_style, cfg.gemini_tts_models,
+                                         set(cfg.tts_plain_models)):
+        samples = _trim_silence(samples, sr)
+        heard = _transcribe(samples, sr, " ".join(texts))
+        if spoke_extra(n_script, len(heard)):
+            log.warning("tts %s spoke %d words for a %d-word script; rejecting take", model, len(heard), n_script)
+            continue
+        good = (samples, sr, model, heard)
+        break
+    if good is None:
+        if cfg.require_host_voice:
+            raise VoiceUnavailable("Gemini TTS gave no usable take (quota or outage)")
         log.info("Gemini TTS unavailable; using Kokoro")
-        voices = [cfg.buzzbee_kokoro_voice if ln.speaker == "Buzzbee" else (fmt.voice if fmt else None)
-                  for ln in lines]
-        return narrate(texts, out_dir, voice=fmt.voice if fmt else None, speed=fmt.speed if fmt else None,
-                       voices=voices)
-    samples, sr, model = result
-    samples = _trim_silence(samples, sr)
+        return narrate(texts, out_dir, voice=cfg.voice, speed=cfg.speed)
+    samples, sr, model, heard = good
+    limit = get_settings().video.max_short_seconds - 1.5
+    if len(samples) / sr > limit:  # slightly too long: speed up (pitch kept), at most 8%
+        factor = min(MAX_SPEEDUP, len(samples) / sr / limit)
+        samples = _time_stretch(samples, sr, factor)
+        heard = [(w, s / factor, e / factor) for w, s, e in heard]
+        log.info("narration sped up x%.3f to fit the Short", factor)
     wav = out_dir / "voice.wav"
     _write_wav(wav, samples, sr)
     duration = len(samples) / sr
-    words = align_global(texts, _transcribe(samples, sr, " ".join(texts)), duration)
+    words = align_global(texts, heard, duration)
     spans = []
     for i in range(len(lines)):
         mine = [w for w in words if w.line == i]

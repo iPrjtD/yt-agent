@@ -13,7 +13,7 @@ from ytagent.research import Brief
 
 log = logging.getLogger(__name__)
 
-MIN_WORDS, MAX_WORDS = 110, 150
+MIN_WORDS, MAX_WORDS = 100, 130  # Buzzbee's expressive voice is ~2.1 words/s; keeps Shorts under a minute
 
 
 class Beat(BaseModel):
@@ -68,6 +68,12 @@ def write_short(brief: Brief, fmt: str = "facts", angle: str = "") -> ShortScrip
 Emotion = Literal["excited", "serious", "dramatic", "warm", "playful", "calm", "shocked", "inspiring"]
 
 
+class Shot(BaseModel):
+    words: str = Field(description="the first 3 words of the phrase this shot covers, copied exactly")
+    query: str = Field(description="2-5 word stock-footage search that literally shows those words")
+    scene: str = Field(description="one vivid sentence describing the exact scene, for an illustration")
+
+
 class BeatPlan(BaseModel):
     emotion: Emotion
     reaction: Literal["none", "shocked", "laugh", "cool", "think", "sad", "love"]
@@ -75,6 +81,7 @@ class BeatPlan(BaseModel):
     meme_top: str
     meme_bottom: str
     buzz_line: str
+    shots: list[Shot] = Field(min_length=1, max_length=4)
 
 
 class MemePlan(BaseModel):
@@ -89,8 +96,9 @@ def plan_meme(script: ShortScript, fmt: str) -> MemePlan:
     prompt = (ROOT / "prompts" / "meme_plan.md").read_text(encoding="utf-8").format(
         channel=get_settings().channel.name, format_name=fmt, lines=numbered)
     plan = llm.complete_json("writer", [{"role": "user", "content": prompt}], MemePlan, temperature=0.8)
-    blank = BeatPlan(emotion="warm", reaction="none", sfx="none", meme_top="", meme_bottom="", buzz_line="")
-    plan.beats = (plan.beats + [blank] * len(script.beats))[: len(script.beats)]
+    blanks = [BeatPlan(emotion="warm", reaction="none", sfx="none", meme_top="", meme_bottom="", buzz_line="",
+                       shots=[Shot(words="", query=b.visual_query, scene=b.visual_query)]) for b in script.beats]
+    plan.beats = (plan.beats + blanks[len(plan.beats):])[: len(script.beats)]
     return plan
 
 

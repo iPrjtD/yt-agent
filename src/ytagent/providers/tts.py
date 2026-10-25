@@ -1,7 +1,8 @@
-"""Expressive narration with Gemini TTS: one request voices the whole Short, narrator + Buzzbee.
+"""Buzzbee's voice: expressive single-voice narration with Gemini TTS (one request per Short).
 
-Free-tier quota is per model per day, so several TTS models are tried in order; on failure the caller falls
-back to local Kokoro.
+Free-tier quota is per model per day, so several TTS models are tried in order. Models differ in what they
+accept: some follow "[emotion]" tags and a direction silently, others read them aloud, so those get the plain
+script only (see `voice.tts_plain_models`).
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import io
 import logging
 import re
 import wave
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import httpx
@@ -26,7 +28,7 @@ API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateC
 
 @dataclass
 class Line:
-    speaker: str   # "Narrator" or "Buzzbee"
+    speaker: str   # kept for captions/animation ("Narrator" lines vs Buzzbee's quick asides); same voice
     text: str
     emotion: str = "warm"
 
@@ -45,44 +47,35 @@ def _decode(inline: dict) -> tuple[np.ndarray, int]:
     return pcm.astype(np.float32) / 32768.0, sr
 
 
-def build_prompt(lines: list[Line], narrator_style: str) -> str:
-    direction = (f"Voice this YouTube Shorts script. The Narrator is {narrator_style}. Buzzbee is a cheeky, "
-                 "playful cartoon bee who makes quick funny comments. Perform each line with the emotion in "
-                 "square brackets, but never say the brackets or the emotion word. Keep a natural, fast, "
-                 "engaging pace with short pauses between lines.")
-    body = "\n".join(f"{ln.speaker}: [{ln.emotion}] {ln.text}" for ln in lines)
-    return f"{direction}\n\n{body}"
+def tagged_prompt(lines: list[Line], style: str) -> str:
+    """Direction + one "[emotion] line" per row, for models that follow tags without speaking them."""
+    direction = (f"You are Buzzbee, {style}. Voice this YouTube Short in one take. Perform each line with the "
+                 "emotion in square brackets but never say the brackets or the emotion word. Natural, lively "
+                 "pace with short pauses between lines. Say only the lines.")
+    return direction + "\n\n" + "\n".join(f"[{ln.emotion}] {ln.text}" for ln in lines)
 
 
-def synthesize(lines: list[Line], narrator_voice: str, buzz_voice: str, narrator_style: str,
-               models: list[str]) -> tuple[np.ndarray, int, str] | None:
-    """Returns (samples float32 mono, sample rate, model) or None if every model failed."""
+def plain_prompt(lines: list[Line]) -> str:
+    """Just the words, for models that read any direction or tag aloud."""
+    return "\n".join(ln.text for ln in lines)
+
+
+def synthesize(lines: list[Line], voice: str, style: str, models: list[str],
+               plain_models: set[str] | None = None) -> Iterator[tuple[np.ndarray, int, str]]:
+    """Yields one take per available model, in order; the caller checks each and keeps the first good one."""
     key = get_settings().env.gemini_api_key
     if not key:
-        return None
-    speakers = {ln.speaker for ln in lines}
-    if len(speakers) > 1:
-        speech = {"multiSpeakerVoiceConfig": {"speakerVoiceConfigs": [
-            {"speaker": "Narrator", "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": narrator_voice}}},
-            {"speaker": "Buzzbee", "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": buzz_voice}}}]}}
-    else:
-        speech = {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": narrator_voice}}}
+        return
+    speech = {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
     gen = {"responseModalities": ["AUDIO"], "speechConfig": speech}
-    # Format A: one text with "Speaker: [emotion] line" rows + a direction (models that follow tags silently).
-    prompt_payload = {"contents": [{"parts": [{"text": build_prompt(lines, narrator_style)}]}], "generationConfig": gen}
-    # Format B: one part per line tagged with speechMetadata (newer models; they read [tags] aloud, so none).
-    parts_payload = {"contents": [{"role": "user", "parts": [
-        {"text": ln.text, "speechMetadata": {"speaker": ln.speaker}} for ln in lines]}], "generationConfig": gen}
-    skip = _exhausted()
+    plain_models = plain_models or set()
     for model in models:
-        if f"gemini/{model}" in skip:
+        if f"gemini/{model}" in _exhausted():
             continue
+        text = plain_prompt(lines) if model in plain_models else tagged_prompt(lines, style)
         try:
-            resp = httpx.post(API.format(model=model), headers={"x-goog-api-key": key}, json=prompt_payload,
-                              timeout=180)
-            if resp.status_code == 400 and "speech_metadata" in resp.text and len(speakers) > 1:
-                resp = httpx.post(API.format(model=model), headers={"x-goog-api-key": key}, json=parts_payload,
-                                  timeout=180)
+            resp = httpx.post(API.format(model=model), headers={"x-goog-api-key": key}, timeout=180,
+                              json={"contents": [{"parts": [{"text": text}]}], "generationConfig": gen})
         except httpx.HTTPError as exc:
             log.warning("tts %s failed: %s", model, exc)
             continue
@@ -97,5 +90,4 @@ def synthesize(lines: list[Line], narrator_voice: str, buzz_voice: str, narrator
         if inline:
             samples, sr = _decode(inline)
             log.info("tts %s: %.1fs audio", model, len(samples) / sr)
-            return samples, sr, model
-    return None
+            yield samples, sr, model

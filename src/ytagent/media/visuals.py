@@ -340,7 +340,7 @@ def find_visual(query: str, min_seconds: float, used: set[str], credits: list[st
         description = query
     for cand in rank(pool, description, real_only=not person):
         # Subject images (title already names the subject; may be drawings/engravings) need a lower bar.
-        if cand.score < (MIN_SUBJECT_MATCH if person else MIN_MATCH):
+        if cand.score < (MIN_SUBJECT_MATCH if person else get_settings().visuals.min_match):
             break
         path = cand.fetch()
         if path:

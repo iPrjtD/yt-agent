@@ -4,24 +4,25 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import shutil
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from ytagent.config import get_settings
 from ytagent.db import session_scope
 from ytagent.media.archive import find_archive_clip
-from ytagent.media.reactions import Reaction, loudness_envelope, render_frames
+from ytagent.media.reactions import Reaction, loudness_envelope, render_frames, render_host_frames
 from ytagent.media.render import Segment, pick_music, qa, render_short
 from ytagent.media.sfx import sfx_file
 from ytagent.media.visuals import Visual, find_visual, text_card
 from ytagent.media.voice import narrate_lines
 from ytagent.models import Topic, Video
+from ytagent.providers.images import generate as generate_scene
 from ytagent.providers.tts import Line
 from ytagent.publish import full_description, upload_private, write_package
 from ytagent.research import Brief, Source, build_format_brief
@@ -80,42 +81,83 @@ REACTION_SECONDS = 1.6
 def _load_or_plan(previous: Path | None, work: Path, script: ShortScript, fmt: str) -> MemePlan:
     """Reuse a saved meme plan when resuming, else ask the writer model for one."""
     saved = previous / "plan.json" if previous else None
+    plan = None
     if saved and saved.exists():
-        plan = MemePlan.model_validate_json(saved.read_text("utf-8"))
-    else:
+        try:
+            plan = MemePlan.model_validate_json(saved.read_text("utf-8"))
+        except ValidationError:  # plan from an older version (e.g. no shot list): plan again
+            plan = None
+    if plan is None:
         plan = plan_meme(script, fmt)
     (work / "plan.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
     return plan
 
 
-def _meme_layers(plan: MemePlan, tts_lines: list[Line], narration, starts: list[float], ends: list[float],
-                 work: Path) -> tuple[list, list[Reaction], list[tuple[float, Path]]]:
-    """Meme captions, Buzzbee reactions/talking and sound effects, timed to the narration."""
+def _meme_layers(plan: MemePlan, narration, starts: list[float], ends: list[float],
+                 work: Path) -> tuple[list, list[Reaction], list[tuple[float, Path]], Path | None]:
+    """Meme captions, Buzzbee pop-up reactions, sound effects and the talking corner host."""
     fps = get_settings().video.fps
     cache = get_settings().data_dir / "cache" / "sfx"
     memes, reactions, sfx = [], [], []
-    talks = [(narration.spans[i][0] - 0.15, narration.spans[i][1] + 0.25)
-             for i, ln in enumerate(tts_lines) if ln.speaker == "Buzzbee"]
     for unit, step in enumerate([plan.hook, *plan.beats]):
         start, end = starts[unit], ends[unit]
         if step.meme_top or step.meme_bottom:
             memes.append((start + 0.1, min(end - 0.1, start + 3.2), step.meme_top, step.meme_bottom))
         if step.sfx != "none":
             sfx.append((max(0.0, start - 0.05), sfx_file(step.sfx, cache)))
-        if step.reaction != "none":
+        if step.reaction != "none" and end - (start + 0.5) >= 0.8:
             at = start + 0.5
-            # Never overlap Buzzbee talking in the same scene.
-            stop = min([end - 0.1, *(t0 for t0, _ in talks if t0 > at)])
-            if stop - at >= 0.7:
-                reactions.append(Reaction(at, min(REACTION_SECONDS, stop - at), step.reaction))
-                sfx.append((at, sfx_file("pop", cache)))
-    for t0, t1 in talks:
-        reactions.append(Reaction(max(0.0, t0), t1 - t0, "talk"))
+            reactions.append(Reaction(at, min(REACTION_SECONDS, end - 0.1 - at), step.reaction))
+            sfx.append((at, sfx_file("pop", cache)))
     for j, r in enumerate(sorted(reactions, key=lambda r: r.start)):
-        envelope = (loudness_envelope(narration.samples, narration.sr, r.start, r.duration, fps)
-                    if r.expression == "talk" and narration.samples is not None else None)
-        render_frames(r, work / "reactions" / f"r{j:02d}", fps, envelope)
-    return memes, reactions, sfx
+        render_frames(r, work / "reactions" / f"r{j:02d}", fps)
+    host_dir = None
+    if narration.samples is not None:  # Buzzbee in the corner talks along with the whole voice track
+        envelope = loudness_envelope(narration.samples, narration.sr, 0.0, narration.duration + 0.4, fps)
+        host_dir = render_host_frames(narration.duration + 0.4, envelope, work / "host", fps)
+    return memes, reactions, sfx, host_dir
+
+
+def _shot_times(shots: list, words: list, start: float, end: float) -> list[float]:
+    """Start time of each shot: where its first words are spoken in this scene (evenly spread if not found)."""
+    norm = [re.sub(r"[^\w%]", "", w.text.lower()) for w in words]
+    times, cursor = [], 0
+    for k, shot in enumerate(shots):
+        cue = [re.sub(r"[^\w%]", "", t.lower()) for t in shot.words.split()[:2] if t.strip()]
+        found = None
+        for i in range(cursor, len(norm)):
+            if cue and norm[i:i + len(cue)] == cue:
+                found = i
+                break
+        if k == 0:
+            times.append(start)
+        elif found is not None and words[found].start > times[-1] + 1.2:
+            times.append(words[found].start)
+            cursor = found + 1
+        else:
+            times.append(None)
+    # Fill unknown cut points evenly between their neighbours.
+    for k, t in enumerate(times):
+        if t is None:
+            nxt = next((x for x in times[k + 1:] if x is not None), end)
+            gap = len([x for x in times[k:] if x is None]) + 1
+            times[k] = times[k - 1] + (nxt - times[k - 1]) / gap
+    return [t for t in times if t < end - 0.8] or [start]
+
+
+def _shot_visual(shot, subject: str, portrait: bool, seconds: float, used: set[str], credits: list[str],
+                 work: Path) -> tuple[Visual | None, bool]:
+    """Best visual for one shot: the named subject's real footage, real stock that shows the words,
+    else an AI-drawn scene. Never an unrelated clip."""
+    if subject:
+        visual, fit = _subject_visual(subject, shot.query, seconds, used, credits, portrait=portrait)
+        if visual:
+            return visual, fit
+    visual = find_visual(shot.query, seconds, used, credits)
+    if visual:
+        return visual, False
+    drawn = generate_scene(shot.scene, get_settings().data_dir / "cache" / "ai")
+    return (Visual(drawn, still=True), True) if drawn else (None, False)
 
 
 def _fill_subjects(script: ShortScript, person: str) -> None:
@@ -197,41 +239,40 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         first_line = [unit_of_line.index(u) for u in range(n_units)]
         starts = [0.0] + [narration.spans[first_line[u]][0] for u in range(1, n_units)]
         ends = starts[1:] + [narration.duration + 0.35]
-        lines = [None] * n_units  # one entry per unit (hook, beats, outro) for the visuals loop below
-        queries = [script.hook_visual_query or script.beats[0].visual_query] + [b.visual_query for b in script.beats]
         on_screen = [""] + [b.on_screen for b in script.beats]
         _fill_subjects(script, person)
         subjects = [person or script.beats[0].subject] + [b.subject for b in script.beats]
+        steps = [plan.hook, *plan.beats]
         segments, labels, used, credits = [], [], set(), []
         for i, (start, end) in enumerate(zip(starts, ends, strict=True)):
-            duration = end - start
-            if i == len(lines) - 1:  # outro: branded end card
+            if i == n_units - 1:  # outro: branded end card
                 card = text_card(OUTRO_CARD, work / "card_outro.png")
-                segments.append(Segment(card, duration, still=True))
+                segments.append(Segment(card, end - start, still=True))
                 continue
             labels.append((start + 0.15, end - 0.1, on_screen[i]))
-            # A new shot every ~4 s keeps it feeling like a real edit; extra shots reuse the line's query.
-            shots = max(1, math.ceil(duration / SHOT_SECONDS))
-            for k in range(shots):
-                shot_len = duration / shots
-                visual, fit = _subject_visual(subjects[i], queries[i], shot_len, used, credits,
-                                              portrait=bool(person) and i == 0 and k == 0)
-                if visual is None:
-                    visual = find_visual(queries[i], shot_len, used, credits)
-                if visual is None and k > 0:  # nothing else relevant: stretch the previous shot instead
-                    segments[-1].duration += shot_len
+            # One shot per spoken phrase, cut when its first words are heard.
+            unit_lines = {n for n, u in enumerate(unit_of_line) if u == i}
+            unit_words = [w for w in narration.words if w.line in unit_lines]
+            shots = steps[i].shots
+            cuts = _shot_times(shots, unit_words, start, end)
+            for k, cut in enumerate(cuts):
+                seconds = (cuts[k + 1] if k + 1 < len(cuts) else end) - cut
+                visual, fit = _shot_visual(shots[k], subjects[i], portrait=bool(person) and i == 0 and k == 0,
+                                           seconds=seconds, used=used, credits=credits, work=work)
+                if visual is None and segments and k > 0:  # nothing fits: hold the previous shot longer
+                    segments[-1].duration += seconds
                     continue
                 if visual is None:
-                    card = text_card(on_screen[i] or script.title, work / f"card_{i:02d}.png", with_mascot=False)
-                    segments.append(Segment(card, shot_len, still=True))
+                    card = text_card(on_screen[i] or script.title, work / f"card_{i:02d}_{k}.png", with_mascot=False)
+                    segments.append(Segment(card, seconds, still=True))
                 else:
-                    segments.append(Segment(visual.path, shot_len, still=visual.still, fit=fit))
+                    segments.append(Segment(visual.path, seconds, still=visual.still, fit=fit))
 
-        memes, reactions, sfx = _meme_layers(plan, tts_lines, narration, starts, ends, work)
+        memes, reactions, sfx, host_dir = _meme_layers(plan, narration, starts, ends, work)
         buzz_lines = frozenset(i for i, ln in enumerate(tts_lines) if ln.speaker == "Buzzbee")
         music = pick_music(video_id, style.music if style else "")
         final = render_short(segments, narration.wav, narration.words, work, labels, music,
-                             memes=memes, buzz_lines=buzz_lines, reactions=reactions, sfx=sfx)
+                             memes=memes, buzz_lines=buzz_lines, reactions=reactions, sfx=sfx, host_dir=host_dir)
         problems = qa(final)
         description = full_description(script, brief.sources, credits)
         write_package(work, script, description)
@@ -249,6 +290,7 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
             tmp.unlink(missing_ok=True)
         shutil.rmtree(work / "fonts", ignore_errors=True)
         shutil.rmtree(work / "reactions", ignore_errors=True)
+        shutil.rmtree(work / "host", ignore_errors=True)
 
     with session_scope() as s:
         row = s.get(Video, video_id)

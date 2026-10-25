@@ -159,6 +159,9 @@ def _face(img: Image.Image, expression: str, mouth: float, k: float) -> None:
     elif expression == "love":
         heart(410, 445, 70)
         heart(590, 445, 70)
+    elif expression == "blink":
+        for ex in (410, 590):
+            d.arc(box(ex, 430, 110, 70), start=20, end=160, fill=INK, width=px(12))
     else:
         round_eyes()
 

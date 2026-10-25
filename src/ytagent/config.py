@@ -25,6 +25,8 @@ class Env(BaseSettings):
     youtube_client_secrets: str = "secrets/youtube_client_secret.json"
     pexels_api_key: str = ""
     gemini_api_key: str = ""
+    cloudflare_account_id: str = ""
+    cloudflare_api_token: str = ""
     pixabay_api_key: str = ""
     ntfy_topic: str = ""
 
@@ -70,9 +72,11 @@ class PathsCfg(BaseModel):
 
 
 class VoiceCfg(BaseModel):
+    host_voice: str = "Puck"
+    host_style: str = "the channel's cheerful, curious cartoon bee host"
+    require_host_voice: bool = True
     gemini_tts_models: list[str] = Field(default_factory=list)
-    buzzbee_voice: str = "Puck"
-    buzzbee_kokoro_voice: str = "af_sky"
+    tts_plain_models: list[str] = Field(default_factory=list)
     engine: str = "kokoro"
     voice: str = "af_heart"
     speed: float = 1.08
@@ -88,6 +92,13 @@ class VideoCfg(BaseModel):
     height: int = 1920
     fps: int = 30
     max_short_seconds: int = 59
+
+
+class VisualsCfg(BaseModel):
+    min_match: float = 0.25          # CLIP bar for real footage (clear matches score ~0.27-0.31)
+    ai_style: str = ("vibrant 3D claymation stop-motion style, soft warm studio lighting, playful, cinematic "
+                     "composition, highly detailed, vertical 9:16, no text, no letters, no watermark")
+    ai_daily_cap: int = 120          # stay inside Cloudflare's free daily allocation
 
 
 class AutopilotCfg(BaseModel):
@@ -122,6 +133,7 @@ class Settings(BaseModel):
     video: VideoCfg = Field(default_factory=VideoCfg)
     publishing: PublishingCfg = Field(default_factory=PublishingCfg)
     autopilot: AutopilotCfg = Field(default_factory=AutopilotCfg)
+    visuals: VisualsCfg = Field(default_factory=VisualsCfg)
     paths: PathsCfg = Field(default_factory=PathsCfg)
     env: Env = Field(default_factory=Env)
 

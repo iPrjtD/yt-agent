@@ -72,6 +72,30 @@ def render_frames(reaction: Reaction, out_dir: Path, fps: int, envelope: np.ndar
     return out_dir
 
 
+HOST_SIZE = 210
+BLINK_EVERY_S, BLINK_FRAMES = 3.3, 4
+
+
+@lru_cache(maxsize=16)
+def _host_pose(blink: bool, mouth_level: int) -> Image.Image:
+    return mascot(HOST_SIZE, "blink" if blink else "neutral", mouth=mouth_level / 3)
+
+
+def render_host_frames(duration: float, envelope: np.ndarray, out_dir: Path, fps: int) -> Path:
+    """The corner host for the whole video: mouth follows the voice, regular blinks, gentle bob."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    levels = mouth_levels(envelope, fps)
+    canvas = HOST_SIZE + 20
+    blink_period = int(BLINK_EVERY_S * fps)
+    for i in range(max(1, round(duration * fps))):
+        blink = i % blink_period < BLINK_FRAMES and i > fps
+        pose = _host_pose(blink, levels[i] if i < len(levels) else 0)
+        frame = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+        frame.alpha_composite(pose, (10, int(10 + 4 * math.sin(i / fps * 2 * math.pi * 0.8))))
+        frame.save(out_dir / f"{i:05d}.png", compress_level=1)
+    return out_dir
+
+
 def loudness_envelope(samples: np.ndarray, sr: int, start: float, duration: float, fps: int) -> np.ndarray:
     """RMS loudness per video frame for a slice of the narration (drives the talking mouth)."""
     a, b = int(start * sr), int((start + duration) * sr)

@@ -96,10 +96,12 @@ trends:
   keep_days: 14
 
 voice:
-  # Expressive two-voice narration (narrator + Buzzbee) via Gemini TTS; Kokoro below is the local fallback.
+  # Buzzbee narrates every video in ONE voice (channel identity); only the emotion changes per line.
+  host_voice: Puck               # Gemini prebuilt voice; samples in data/buzzbee_voice_*.mp3
+  host_style: "the channel's cheerful, curious cartoon bee host"
+  require_host_voice: true       # postpone a Short rather than switch to a different (Kokoro) voice
   gemini_tts_models: [gemini-3.1-flash-tts-preview, gemini-3.8-flash-tts]
-  buzzbee_voice: Puck            # Gemini voice for Buzzbee's quips
-  buzzbee_kokoro_voice: af_sky   # fallback voice for Buzzbee
+  tts_plain_models: [gemini-3.8-flash-tts]   # read [tags]/directions aloud, so they get the bare script
   engine: kokoro                 # kokoro (free, local) | elevenlabs (later)
   voice: af_heart                # Kokoro voice id; samples in data/tts_test
   speed: 1.08

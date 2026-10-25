@@ -165,6 +165,7 @@ def gemini_writer_available() -> bool:
 def job_produce() -> dict:
     """Make one Short (format mix decides the topic); retries once with another topic on failure."""
     from ytagent.db import session_scope
+    from ytagent.media.voice import VoiceUnavailable
     from ytagent.models import Topic, Video
     from ytagent.pipeline import make_short
 
@@ -179,6 +180,9 @@ def job_produce() -> dict:
             if result["status"] == "pending_review":
                 notify("Buzzbee: new Short ready 🐝", f"#{result['video_id']} {result['title']}")
             return result
+        except VoiceUnavailable:  # Buzzbee's voice quota is used up: keep the topic, try at the next run
+            notify("Buzzbee: production postponed", "Gemini voice quota is used up; the next run will try again.")
+            return {"skipped": "voice quota"}
         except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"[:300]
             log.exception("produce failed")

@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Literal
 
-import litellm
+# LiteLLM otherwise downloads its model price list from GitHub on import (times out on some networks, ~90 s).
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+import litellm  # noqa: E402
 from pydantic import BaseModel, ValidationError
 
 from ytagent.config import get_settings

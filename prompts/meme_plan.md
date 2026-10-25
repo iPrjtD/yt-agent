@@ -19,5 +19,15 @@ For the hook and for EVERY beat, plan:
 - buzz_line: an OPTIONAL quip Buzzbee says AFTER the narrator's line (max 6 words, funny or warm, never
   mocking real suffering or people). Use 1-2 per Short; the video must stay under 60 seconds. Otherwise "".
 
+- shots: the VISUALS for this line, so that what is on screen always shows what is being said.
+  Split the line into 2-3 shots, one per phrase of about 8-12 spoken words (a new shot every ~3 seconds).
+  For each shot:
+  - words: the first 3 words of that phrase, copied EXACTLY from the line (used to time the cut).
+  - query: a 2-5 word search for REAL stock footage that literally shows those words: the concrete
+    subject, action and setting ("surgeon stitching wound", "crowd laughing theatre", "boy walking london
+    street 1900s"). Never abstract ("success", "knowledge"), never names of living people or brands.
+  - scene: one vivid sentence describing the exact moment as a picture (who, doing what, where, era),
+    used to draw an illustration when no real footage fits. No text or captions in the picture.
+
 Keep it tasteful for the topic: for sad moments (poverty, illness, loss) use sad/think reactions and serious
 emotion, not jokes. Humour goes on the comeback, the irony or the punchline.

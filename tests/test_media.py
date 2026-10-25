@@ -70,6 +70,27 @@ def test_fill_subjects_marks_story_beats_up_to_the_quote():
     assert [b.subject for b in script.beats] == ["Charlie Chaplin"] * 3 + [""]
 
 
+def test_spoke_extra_rejects_takes_that_read_the_direction():
+    from ytagent.media.voice import spoke_extra
+
+    assert not spoke_extra(22, 22)
+    assert not spoke_extra(22, 25)
+    assert spoke_extra(22, 80)  # the 3.8 model read the whole instruction paragraph aloud
+
+
+def test_shot_times_cut_where_the_phrase_is_spoken():
+    from ytagent.pipeline import _shot_times
+    from ytagent.script import Shot
+
+    words = [Word(t, i * 0.5, i * 0.5 + 0.4, 0) for i, t in enumerate(
+        "Before age nine he was sent to a workhouse twice and by fourteen his mother was in an asylum".split())]
+    shots = [Shot(words="Before age nine", query="q", scene="s"), Shot(words="and by fourteen", query="q", scene="s")]
+    cuts = _shot_times(shots, words, start=0.0, end=10.0)
+    assert cuts == [0.0, 5.0]  # "and" is word 10 -> 5.0 s
+    unknown = [Shot(words="Before age", query="q", scene="s"), Shot(words="not in line", query="q", scene="s")]
+    assert _shot_times(unknown, words, 0.0, 10.0) == [0.0, 5.0]  # not found: evenly spread
+
+
 def test_parse_dyk_extracts_fact_and_article():
     from ytagent.trends.ideas import parse_dyk
 
