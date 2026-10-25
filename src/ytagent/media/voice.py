@@ -198,7 +198,7 @@ def narrate_lines(lines: list, out_dir: Path, fmt=None) -> Narration:
         log.info("Gemini TTS unavailable; using Kokoro")
         return narrate(texts, out_dir, voice=cfg.voice, speed=cfg.speed)
     samples, sr, model, heard = good
-    limit = get_settings().video.max_short_seconds - 1.5
+    limit = get_settings().video.target_seconds - 1.5
     if len(samples) / sr > limit:  # slightly too long: speed up (pitch kept), at most 8%
         factor = min(MAX_SPEEDUP, len(samples) / sr / limit)
         samples = _time_stretch(samples, sr, factor)

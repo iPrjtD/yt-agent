@@ -114,7 +114,8 @@ video:
   width: 1080
   height: 1920
   fps: 30
-  max_short_seconds: 59
+  target_seconds: 59         # narration is nudged (max 8% faster) towards this
+  max_short_seconds: 90      # QA limit; YouTube Shorts allow up to 3 minutes
 
 publishing:
   # manual: render + publish package for upload in Studio (until the YouTube API audit passes)

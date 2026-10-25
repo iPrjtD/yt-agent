@@ -91,6 +91,16 @@ def test_shot_times_cut_where_the_phrase_is_spoken():
     assert _shot_times(unknown, words, 0.0, 10.0) == [0.0, 5.0]  # not found: evenly spread
 
 
+def test_historic_shots_are_recognised():
+    from ytagent.pipeline import HISTORIC
+
+    assert HISTORIC.search("ancient indian surgeon reconstructing a nose")
+    assert HISTORIC.search("a boy on a london street in the 1890s")
+    assert HISTORIC.search("Mughal emperor in his court")
+    assert not HISTORIC.search("modern surgeon in an operating room")
+    assert not HISTORIC.search("crowd laughing in a theatre")
+
+
 def test_parse_dyk_extracts_fact_and_article():
     from ytagent.trends.ideas import parse_dyk
 

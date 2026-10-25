@@ -22,6 +22,7 @@ from ytagent.media.sfx import sfx_file
 from ytagent.media.visuals import Visual, find_visual, text_card
 from ytagent.media.voice import narrate_lines
 from ytagent.models import Topic, Video
+from ytagent.providers.images import available as ai_available
 from ytagent.providers.images import generate as generate_scene
 from ytagent.providers.tts import Line
 from ytagent.publish import full_description, upload_private, write_package
@@ -76,6 +77,10 @@ def pick_topic(topic_id: int | None, fmt: str | None = None) -> tuple[Topic, str
 
 
 REACTION_SECONDS = 1.6
+STRONG_MATCH = 0.27  # CLIP bar for real stock when an AI scene can be drawn instead
+HISTORIC = re.compile(r"\b(ancient|medieval|centur(y|ies)|\d{3,4}s|\d+(st|nd|rd|th)[- ]century|bce?|victorian|"
+                      r"historic(al)?|empire|king|queen|emperor|pharaoh|maharaja|mughal|vedic|samurai|viking|"
+                      r"roman|greek|egyptian|prehistoric|stone age|olden)\b", re.I)
 
 
 def _load_or_plan(previous: Path | None, work: Path, script: ShortScript, fmt: str) -> MemePlan:
@@ -149,14 +154,22 @@ def _shot_visual(shot, subject: str, portrait: bool, seconds: float, used: set[s
                  work: Path) -> tuple[Visual | None, bool]:
     """Best visual for one shot: the named subject's real footage, real stock that shows the words,
     else an AI-drawn scene. Never an unrelated clip."""
+    ai_cache = get_settings().data_dir / "cache" / "ai"
     if subject:
         visual, fit = _subject_visual(subject, shot.query, seconds, used, credits, portrait=portrait)
         if visual:
             return visual, fit
-    visual = find_visual(shot.query, seconds, used, credits)
+    ai_on = ai_available()
+    if ai_on and HISTORIC.search(f"{shot.scene} {shot.query}"):
+        # Stock libraries have no footage of ancient/old-era moments: draw the scene instead.
+        drawn = generate_scene(shot.scene, ai_cache)
+        if drawn:
+            return Visual(drawn, still=True), True
+    # With AI scenes available, real stock must be a strong match; weaker ones get drawn.
+    visual = find_visual(shot.query, seconds, used, credits, min_match=STRONG_MATCH if ai_on else None)
     if visual:
         return visual, False
-    drawn = generate_scene(shot.scene, get_settings().data_dir / "cache" / "ai")
+    drawn = generate_scene(shot.scene, ai_cache)
     return (Visual(drawn, still=True), True) if drawn else (None, False)
 
 

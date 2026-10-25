@@ -329,9 +329,11 @@ def rank(candidates: list[Candidate], description: str, real_only: bool = True) 
 
 
 def find_visual(query: str, min_seconds: float, used: set[str], credits: list[str] | None = None,
-                person: str = "") -> Visual | None:
-    """The best-matching real visual for a shot, or None if nothing clears the quality bar."""
+                person: str = "", min_match: float | None = None) -> Visual | None:
+    """The best-matching real visual for a shot, or None if nothing clears the quality bar
+    (`min_match` overrides visuals.min_match, e.g. stricter when an AI scene can be drawn instead)."""
     credits = credits if credits is not None else []
+    bar = min_match if min_match is not None else get_settings().visuals.min_match
     if person:  # a real photo of the subject (historical drawings/engravings of them are fine too)
         pool = commons_candidates(person, used, require_title=True)
         description = f"{person}, portrait"
@@ -340,7 +342,7 @@ def find_visual(query: str, min_seconds: float, used: set[str], credits: list[st
         description = query
     for cand in rank(pool, description, real_only=not person):
         # Subject images (title already names the subject; may be drawings/engravings) need a lower bar.
-        if cand.score < (MIN_SUBJECT_MATCH if person else get_settings().visuals.min_match):
+        if cand.score < (MIN_SUBJECT_MATCH if person else bar):
             break
         path = cand.fetch()
         if path:
