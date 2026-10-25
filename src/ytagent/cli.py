@@ -53,16 +53,85 @@ def autopilot_uninstall() -> None:
 
 @autopilot_app.command("status")
 def autopilot_status() -> None:
-    """Scheduled tasks, next runs, Gemini quota and Shorts waiting for you."""
-    from ytagent.autopilot import gemini_writer_available, write_ready_list
+    """Is the autopilot healthy? Tasks, last results, services, free quotas and your Shorts."""
+    import re
+
+    from sqlalchemy import func, select
+
+    from ytagent.autopilot import _docker_ok, _ollama_ok, write_ready_list
+    from ytagent.db import session_scope
+    from ytagent.models import Video
+    from ytagent.providers import images
+    from ytagent.providers.llm import _exhausted
     from ytagent.schedule import status
 
-    table = Table("task", "next run", "last result")
-    for row in status():
-        table.add_row(*row)
+    settings = get_settings()
+    table = Table("task", "state", "last run", "last result", "next run", title="Scheduled tasks")
+    for r in status():
+        colour = "green" if r["result"] in ("OK", "running now", "not run yet") else "red"
+        table.add_row(r["task"], r["state"], r["last"], f"[{colour}]{r['result']}[/]", r["next"])
     console.print(table)
-    console.print(f"Gemini writer available now: {gemini_writer_available()}")
-    console.print(f"Ready list: {write_ready_list()}")
+
+    # Latest outcome of each job, from the autopilot logs.
+    outcomes: dict[str, str] = {}
+    for log_file in sorted((settings.data_dir / "logs").glob("autopilot-*.log"))[-3:]:
+        for line in log_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"(\S+ \S+),\d+ INFO ytagent\.autopilot: (\w+) -> (.*?) \(log:", line)
+            if m:
+                outcomes[m.group(2)] = f"{m.group(1)}  {m.group(3)[:110]}"
+    jobs = Table("job", "latest outcome", title="Latest job results")
+    for job in ("review", "ideas", "produce", "cleanup"):
+        jobs.add_row(job, outcomes.get(job, "-"))
+    console.print(jobs)
+
+    def ok(flag: bool) -> str:
+        return "[green]up[/]" if flag else "[red]DOWN[/]"
+
+    try:
+        with session_scope() as s:
+            counts = dict(s.execute(select(Video.status, func.count()).group_by(Video.status)).all())
+        db_up = True
+    except Exception:
+        counts, db_up = {}, False
+    skip = _exhausted()
+    writers = [settings.llm.writer, *settings.llm.fallbacks.get("writer", [])]
+    tts = [f"gemini/{m}" for m in settings.voice.gemini_tts_models]
+    console.print(f"Services: Docker {ok(_docker_ok())} | database {ok(db_up)} | local AI (Ollama) {ok(_ollama_ok())}")
+    console.print(f"Free quotas today: script models {sum(m.startswith('gemini/') and m not in skip for m in writers)}"
+                  f" available | voice models {sum(m not in skip for m in tts)}/{len(tts)} available | "
+                  f"AI scenes {images._used_today()}/{settings.visuals.ai_daily_cap} used")
+    console.print(f"Shorts: {counts.get('pending_review', 0)} waiting for review | "
+                  f"{counts.get('scheduled', 0)} scheduled | {counts.get('published', 0)} published")
+    console.print(f"Review list: {write_ready_list()}")
+    console.print("If something is DOWN or FAILED: `ytagent autopilot start` re-registers and enables everything; "
+                  "`ytagent autopilot run-now <job>` runs a job immediately; logs are in data/logs/.")
+
+
+@autopilot_app.command("start")
+def autopilot_start() -> None:
+    """(Re)register all scheduled tasks and enable them."""
+    from ytagent.schedule import install, set_enabled
+
+    install()
+    for name in set_enabled(True):
+        console.print(f"[green]enabled[/] {name}")
+
+
+@autopilot_app.command("stop")
+def autopilot_stop() -> None:
+    """Pause the autopilot (tasks stay registered; `start` resumes)."""
+    from ytagent.schedule import set_enabled
+
+    for name in set_enabled(False):
+        console.print(f"paused {name}")
+
+
+@autopilot_app.command("run-now")
+def autopilot_run_now(job: str = typer.Argument(..., help="review | ideas | produce | cleanup")) -> None:
+    """Start a job right away in the background, exactly like the schedule does."""
+    from ytagent.schedule import run_now
+
+    console.print(f"started {job}" if run_now(job) else f"[red]no task for {job!r}[/]")
 
 
 @short_app.command("upload")

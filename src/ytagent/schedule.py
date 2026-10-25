@@ -103,12 +103,44 @@ def uninstall() -> list[str]:
     return removed
 
 
-def status() -> list[tuple[str, str, str]]:
+RESULTS = {"0": "OK", "267009": "running now", "267011": "not run yet", "267014": "stopped", "1": "FAILED",
+           "2147942402": "FAILED (file not found)", "2147946720": "FAILED (not logged on)"}
+
+
+def status() -> list[dict]:
+    """State of each task: enabled, last run + result in plain words, next run."""
     rows = []
     for t in tasks():
         name = f"{FOLDER}\\{t['name']}"
         out = subprocess.run(["schtasks", "/query", "/tn", name, "/fo", "list", "/v"], capture_output=True,
                              text=True, creationflags=NO_WINDOW)
-        info = dict(line.split(":", 1) for line in out.stdout.splitlines() if ":" in line)
-        rows.append((name, info.get("Next Run Time", "not installed").strip(), info.get("Last Result", "").strip()))
+        pairs = (line.split(":", 1) for line in out.stdout.splitlines() if ":" in line)
+        info = {k.strip(): v.strip() for k, v in pairs}
+        if out.returncode != 0:
+            rows.append({"task": t["name"], "state": "NOT INSTALLED", "last": "-", "result": "-", "next": "-"})
+            continue
+        code = info.get("Last Result", "")
+        rows.append({"task": t["name"], "state": "Disabled" if info.get("Scheduled Task State") == "Disabled"
+                     else info.get("Status", "?"), "last": info.get("Last Run Time", "-"),
+                     "result": RESULTS.get(code, f"FAILED (code {code})"), "next": info.get("Next Run Time", "-")})
     return rows
+
+
+def set_enabled(enabled: bool) -> list[str]:
+    done = []
+    for t in tasks():
+        name = f"{FOLDER}\\{t['name']}"
+        out = subprocess.run(["schtasks", "/change", "/tn", name, "/enable" if enabled else "/disable"],
+                             capture_output=True, text=True, creationflags=NO_WINDOW)
+        if out.returncode == 0:
+            done.append(name)
+    return done
+
+
+def run_now(job: str) -> bool:
+    """Start a task immediately in the background (same way the schedule does)."""
+    name = next((f"{FOLDER}\\{t['name']}" for t in tasks() if t["job"] == job), None)
+    if name is None:
+        return False
+    out = subprocess.run(["schtasks", "/run", "/tn", name], capture_output=True, text=True, creationflags=NO_WINDOW)
+    return out.returncode == 0
