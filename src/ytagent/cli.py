@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 import typer
 from rich.console import Console
@@ -252,6 +253,9 @@ def brand_render() -> None:
     ch = get_settings().channel
     for path in render_all(ch.name, ch.tagline):
         console.print(f"wrote {path.relative_to(ROOT)}")
+for _stream in (sys.stdout, sys.stderr):  # titles carry emoji; a piped Windows console is cp1252
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 console = Console()
 
 

@@ -91,6 +91,9 @@ def test_shot_times_cut_where_the_phrase_is_spoken():
     assert cuts == [0.0, 5.0]  # "and" is word 10 -> 5.0 s
     unknown = [Shot(words="Before age", query="q", scene="s"), Shot(words="not in line", query="q", scene="s")]
     assert _shot_times(unknown, words, 0.0, 10.0) == [0.0, 5.0]  # not found: evenly spread
+    gap = [Shot(words="Before age", query="q", scene="s"), Shot(words="nowhere", query="q", scene="s"),
+           Shot(words="his mother", query="q", scene="s")]
+    assert _shot_times(gap, words, 0.0, 10.0) == [0.0, 3.25, 6.5]  # a missing middle cue no longer crashes
 
 
 def test_historic_shots_are_recognised():

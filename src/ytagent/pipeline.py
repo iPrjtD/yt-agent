@@ -136,7 +136,7 @@ def _shot_times(shots: list, words: list, start: float, end: float) -> list[floa
                 break
         if k == 0:
             times.append(start)
-        elif found is not None and words[found].start > times[-1] + 1.2:
+        elif found is not None and words[found].start > max(t for t in times if t is not None) + 1.2:
             times.append(words[found].start)
             cursor = found + 1
         else:
