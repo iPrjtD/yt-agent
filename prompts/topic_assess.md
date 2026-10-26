@@ -14,7 +14,8 @@ Rules for judging:
 - niche_fit (0-10): how likely a broad audience is to stop scrolling, watch to the end and share it.
   Surprising facts, funny/weird things, inspiring people and great stories score high.
   Money explained (why prices rise, what things really cost, how brands make money) and surprising
-  countries, places and travel destinations also score high.
+  countries, cities, regional foods, natural wonders, travel destinations, history facts (ancient, medieval,
+  modern) and real stories of famous people and Nobel laureates also score high.
   Hard news, wars and conflicts, government/court/administrative notices, business deals, policy, crime,
   and topics only specialists care about score 2 or less. A trending money or travel topic (a gold price
   record, a viral destination) fits when it has an evergreen angle that still works next month.

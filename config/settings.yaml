@@ -10,17 +10,20 @@ channel:
   geo: IN               # ISO country code for trend sources
   # Entertainment + information, any domain. NOT a news channel: evergreen, feel-good, surprising content.
   niches:
-    - "amazing facts: science, space, human body, animals, nature, history, psychology, inventions, records"
+    - "amazing facts: science, space, human body, animals, nature, psychology, inventions, records"
     - "funny and weird: funny facts, weird history, strange laws, hilarious animal behaviour, everyday absurdities"
     - "motivation and inspiration: real quotes and life lessons from great people, inspiring thoughts"
     - "incredible true stories: mysteries, comebacks, rise of famous brands and people, behind the scenes"
     - "fun pop culture: movies, cricket and sports trivia, viral internet moments (light, not news)"
     - "money explained: why prices rise, what things really cost, how famous brands make money (no advice)"
-    - "world and travel: surprising countries, quirky local rules, amazing places and travel destinations"
+    - "world and travel: surprising countries and cities, quirky local rules, regional foods people love,
+       natural wonders and geographic beauty, travel destinations"
+    - "history: ancient, medieval and modern world history facts, empires, inventions, turning points"
+    - "famous people: Nobel laureates, great scientists, leaders, artists and athletes and their real stories"
   # Never make content about these, regardless of score.
   blocked_topics:
     - graphic violence or tragedies involving victims
-    - wars and armed conflicts
+    - current wars and armed conflicts (history from earlier eras is fine)
     - elections and political campaigning
     - medical treatment advice
     - gambling and betting
@@ -71,14 +74,18 @@ trends:
                    inventions, money and brands, food, world records, funny animal behaviour, ancient india,
                    optical illusions and the brain, sports trivia, why prices rise, what things really cost,
                    how famous brands make money, surprising countries, quirky laws around the world,
-                   travel destinations, amazing cities and landmarks]
+                   travel destinations, amazing cities and landmarks, regional foods around the world,
+                   street food favourites, natural wonders, geographic beauty, ancient history,
+                   medieval history, modern world history, empires and rulers, Nobel Prize winners,
+                   famous people and their real stories]
     motivation:
       enabled: true      # verified Wikiquote quotes + life lessons
       per_run: 2
       people: ["A. P. J. Abdul Kalam", "Swami Vivekananda", "Albert Einstein", "Thomas A. Edison",
                "Nikola Tesla", "Marie Curie", "Helen Keller", "Walt Disney", "Bruce Lee", "Muhammad Ali",
                "Steve Jobs", "Rabindranath Tagore", "Leonardo da Vinci", "Isaac Newton", "Michael Jordan",
-               "Ratan Tata", "Mother Teresa", "Theodore Roosevelt", "Maya Angelou", "Charlie Chaplin"]
+               "Ratan Tata", "Mother Teresa", "Theodore Roosevelt", "Maya Angelou", "Charlie Chaplin",
+               "C. V. Raman", "Richard Feynman", "Malala Yousafzai", "Nelson Mandela", "Martin Luther King Jr."]
     # Pop-culture signals (light trending only; hard news is filtered out by scoring)
     google_trends:
       enabled: true

@@ -73,7 +73,8 @@ class EvergreenIdeas:
             "reputable site (e.g. 'Octopuses have three hearts and blue blood', 'The man who survived two "
             "atomic bombs'). Mix formats: 'facts' (mind-blowing facts), 'funny' (funny or weird facts), "
             "'story' (a short true story), 'money' (prices, everyday economics, how brands make money; no investment "
-            "advice), 'world' (surprising countries, places, travel destinations). Avoid politics, wars, "
+            "advice), 'world' (surprising countries, cities, regional foods, natural wonders, travel "
+            "destinations). History and famous people fit 'facts' or 'story'. Avoid politics, current wars, "
             "tragedies, medical advice and anything you are unsure "
             "is true. No generic topics like 'facts about space'.")
         # One call per run, and idea quality drives everything downstream: use the writer model.
