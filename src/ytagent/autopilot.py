@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -39,12 +39,44 @@ def setup_logging() -> Path:
     return path
 
 
+def _pid_alive(pid: int) -> bool:
+    """Is a process with this id still running? (Windows: OpenProcess + exit code; elsewhere: signal 0.)"""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        kernel32.CloseHandle(handle)
+        return code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 @contextmanager
-def lock(name: str = "autopilot", stale_after: timedelta = timedelta(hours=3)):
-    """One job at a time (rendering and the local models need the whole CPU). Stale locks are ignored."""
+def lock(name: str = "autopilot"):
+    """One job at a time (rendering and the local models need the whole CPU).
+
+    The lock holds the owner's process id: if that process is gone (crashed, or killed by Task Scheduler's
+    time limit) the lock is stale and is taken over at once.
+    """
     path = get_settings().data_dir / f"{name}.lock"
-    if path.exists() and datetime.now().timestamp() - path.stat().st_mtime < stale_after.total_seconds():
-        raise RuntimeError(f"another autopilot job is running ({path.name})")
+    if path.exists():
+        try:
+            owner = int(path.read_text(encoding="utf-8").strip() or 0)
+        except (OSError, ValueError):
+            owner = 0
+        if owner != os.getpid() and _pid_alive(owner):
+            raise RuntimeError(f"another autopilot job is running ({path.name}, pid {owner})")
+        log.info("taking over stale lock %s (pid %s is gone)", path.name, owner)
     path.write_text(str(os.getpid()), encoding="utf-8")
     try:
         yield
@@ -54,11 +86,32 @@ def lock(name: str = "autopilot", stale_after: timedelta = timedelta(hours=3)):
 
 # --- services ------------------------------------------------------------------------------------------------
 
+DOCKER_TIMEOUT_S = 25  # right after the PC wakes, the Docker CLI can hang indefinitely without a limit
+
+
+def _docker(*args: str, timeout: int = DOCKER_TIMEOUT_S) -> subprocess.CompletedProcess | None:
+    try:
+        return subprocess.run(["docker", *args], cwd=ROOT, capture_output=True, text=True, timeout=timeout,
+                              creationflags=NO_WINDOW)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        log.warning("docker %s did not answer: %s", " ".join(args[:2]), type(exc).__name__)
+        return None
+
 
 def _docker_ok() -> bool:
-    out = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"], capture_output=True, text=True,
-                         creationflags=NO_WINDOW)
-    return out.returncode == 0 and bool(out.stdout.strip())
+    out = _docker("info", "--format", "{{.ServerVersion}}")
+    return bool(out and out.returncode == 0 and out.stdout.strip())
+
+
+def _wait_for_network(max_wait_s: int = 120) -> None:
+    """After waking from sleep Wi-Fi takes a while; jobs that start immediately would fail or stall."""
+    for _ in range(max_wait_s // 5):
+        try:
+            httpx.get("https://www.googleapis.com/generate_204", timeout=5)
+            return
+        except httpx.HTTPError:
+            time.sleep(5)
+    log.warning("network still unavailable after %ss", max_wait_s)
 
 
 def _ollama_ok() -> bool:
@@ -69,7 +122,8 @@ def _ollama_ok() -> bool:
 
 
 def ensure_services(need_models: bool = True) -> None:
-    """Start Docker Desktop / the containers / Ollama if they are not up yet (e.g. right after boot)."""
+    """Start Docker Desktop / the containers / Ollama if they are not up yet (e.g. right after boot or wake)."""
+    _wait_for_network()
     if not _docker_ok() and DOCKER_DESKTOP.exists():
         log.info("starting Docker Desktop")
         subprocess.Popen([str(DOCKER_DESKTOP)], creationflags=NO_WINDOW)
@@ -78,9 +132,8 @@ def ensure_services(need_models: bool = True) -> None:
             if _docker_ok():
                 break
     if not _docker_ok():
-        raise RuntimeError("Docker is not running")
-    subprocess.run(["docker", "compose", "up", "-d", "db", "searxng"], cwd=ROOT, capture_output=True,
-                   creationflags=NO_WINDOW)
+        raise RuntimeError("Docker is not responding")
+    _docker("compose", "up", "-d", "db", "searxng", timeout=120)
     if need_models and not _ollama_ok():
         exe = shutil.which("ollama") or r"D:\tools\Ollama\ollama.exe"
         log.info("starting Ollama server")
@@ -97,6 +150,7 @@ def ensure_services(need_models: bool = True) -> None:
             from ytagent.db import get_engine
             with get_engine().connect() as conn:
                 conn.execute(text("select 1"))
+            log.info("services ready (docker, database%s)", ", ollama" if need_models else "")
             return
         except Exception:
             time.sleep(5)

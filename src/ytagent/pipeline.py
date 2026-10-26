@@ -234,6 +234,7 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         (work / "brief.json").write_text(json.dumps([asdict(x) for x in brief.sources], indent=2), encoding="utf-8")
         (work / "script.json").write_text(script.model_dump_json(indent=2), encoding="utf-8")
 
+        log.info("script ready: %r; planning shots", script.title)
         plan = _load_or_plan(previous, work, script, fmt)
         # Spoken lines in order: hook, each beat (+ an optional Buzzbee quip), outro. Units = hook, beats, outro.
         tts_lines: list[Line] = []
@@ -248,7 +249,9 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         n_units = len(script.beats) + 2
         tts_lines.append(Line("Narrator", script.outro, plan.outro_emotion))
         unit_of_line.append(n_units - 1)
+        log.info("narrating %d lines", len(tts_lines))
         narration = narrate_lines(tts_lines, work, style)
+        log.info("narration %.1fs; finding visuals", narration.duration)
         first_line = [unit_of_line.index(u) for u in range(n_units)]
         starts = [0.0] + [narration.spans[first_line[u]][0] for u in range(1, n_units)]
         ends = starts[1:] + [narration.duration + 0.35]
@@ -281,6 +284,7 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
                 else:
                     segments.append(Segment(visual.path, seconds, still=visual.still, fit=fit))
 
+        log.info("%d segments; rendering", len(segments))
         memes, reactions, sfx, host_dir = _meme_layers(plan, narration, starts, ends, work)
         buzz_lines = frozenset(i for i, ln in enumerate(tts_lines) if ln.speaker == "Buzzbee")
         music = pick_music(video_id, style.music if style else "")

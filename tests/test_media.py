@@ -118,6 +118,16 @@ def test_next_slot_respects_lead_time_and_gap():
     assert next_slot(late, ["13:00", "19:30"], [], tz, 4) == second
 
 
+def test_stale_lock_is_taken_over_when_owner_process_is_gone(tmp_path, monkeypatch):
+    from ytagent import autopilot
+
+    monkeypatch.setattr(autopilot, "get_settings", lambda: type("S", (), {"data_dir": tmp_path})())
+    (tmp_path / "autopilot.lock").write_text("999999999", encoding="utf-8")  # no such process
+    with autopilot.lock():
+        assert (tmp_path / "autopilot.lock").read_text(encoding="utf-8") == str(__import__("os").getpid())
+    assert not (tmp_path / "autopilot.lock").exists()
+
+
 def test_parse_dyk_extracts_fact_and_article():
     from ytagent.trends.ideas import parse_dyk
 

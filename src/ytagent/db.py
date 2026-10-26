@@ -18,7 +18,8 @@ from ytagent.models import JobRun, utcnow
 
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    return create_engine(get_settings().env.database_url, pool_pre_ping=True)
+    # connect_timeout: a wedged Docker port after the PC wakes must not hang a job forever.
+    return create_engine(get_settings().env.database_url, pool_pre_ping=True, connect_args={"connect_timeout": 10})
 
 
 @contextmanager

@@ -33,7 +33,7 @@ _TASK = """<?xml version="1.0" encoding="UTF-16"?>
     <StartWhenAvailable>true</StartWhenAvailable>
     <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
     <WakeToRun>false</WakeToRun>
-    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
+    <ExecutionTimeLimit>{limit}</ExecutionTimeLimit>
     <Hidden>true</Hidden>
     <Enabled>true</Enabled>
   </Settings>
@@ -60,16 +60,17 @@ def tasks() -> list[dict]:
     every = f"""
       <Repetition><Interval>PT{cfg.ideas_every_hours}H</Interval><Duration>P1D</Duration></Repetition>"""
     out = [{"name": "Ideas", "job": "ideas", "start": f"{today}T00:15:00", "repetition": every,
-            "description": f"Buzzbee: collect and score ideas every {cfg.ideas_every_hours} h"}]
+            "description": f"Buzzbee: collect and score ideas every {cfg.ideas_every_hours} h", "limit": "PT1H"}]
     for i, at in enumerate(cfg.produce_at, 1):
         out.append({"name": f"Produce {i}", "job": "produce", "start": f"{today}T{at}:00", "repetition": "",
-                    "description": f"Buzzbee: make one Short at {at}"})
+                    "description": f"Buzzbee: make one Short at {at}", "limit": "PT1H"})
     out.append({"name": "Cleanup", "job": "cleanup", "start": f"{today}T{cfg.cleanup_at}:00", "repetition": "",
-                "description": "Buzzbee: clear old cache files"})
+                "description": "Buzzbee: clear old cache files", "limit": "PT15M"})
     out.append({"name": "Review", "job": "review", "start": f"{today}T00:05:00",
                 "repetition": """
       <Repetition><Interval>PT10M</Interval><Duration>P1D</Duration></Repetition>""",
-                "description": "Buzzbee: publish Shorts you approved in YouTube Studio (every 10 min)"})
+                "description": "Buzzbee: publish Shorts you approved in YouTube Studio (every 10 min)",
+                "limit": "PT10M"})
     return out
 
 
@@ -77,8 +78,8 @@ def install() -> list[str]:
     done = []
     for t in tasks():
         xml = _TASK.format(description=escape(t["description"]), start=t["start"], repetition=t["repetition"],
-                           command=escape(str(_pythonw())), arguments=f"-m ytagent.cli autopilot run {t['job']}",
-                           workdir=escape(str(ROOT)))
+                           limit=t["limit"], command=escape(str(_pythonw())),
+                           arguments=f"-m ytagent.cli autopilot run {t['job']}", workdir=escape(str(ROOT)))
         with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False, encoding="utf-16") as fh:
             fh.write(xml)
             xml_path = fh.name
