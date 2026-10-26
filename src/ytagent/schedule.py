@@ -13,6 +13,7 @@ from ytagent.config import ROOT, get_settings
 from ytagent.proc import NO_WINDOW
 
 FOLDER = "Buzzbee"
+LEGACY = ["Produce 1", "Produce 2"]  # replaced by one hourly "Produce" task
 
 _TASK = """<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -61,9 +62,10 @@ def tasks() -> list[dict]:
       <Repetition><Interval>PT{cfg.ideas_every_hours}H</Interval><Duration>P1D</Duration></Repetition>"""
     out = [{"name": "Ideas", "job": "ideas", "start": f"{today}T00:15:00", "repetition": every,
             "description": f"Buzzbee: collect and score ideas every {cfg.ideas_every_hours} h", "limit": "PT1H"}]
-    for i, at in enumerate(cfg.produce_at, 1):
-        out.append({"name": f"Produce {i}", "job": "produce", "start": f"{today}T{at}:00", "repetition": "",
-                    "description": f"Buzzbee: make one Short at {at}", "limit": "PT1H"})
+    out.append({"name": "Produce", "job": "produce", "start": f"{today}T{cfg.produce_start}:00", "repetition": f"""
+      <Repetition><Interval>PT{cfg.produce_every_hours}H</Interval><Duration>P1D</Duration></Repetition>""",
+                "description": f"Buzzbee: make and upload one Short every {cfg.produce_every_hours} h",
+                "limit": "PT50M"})
     out.append({"name": "Cleanup", "job": "cleanup", "start": f"{today}T{cfg.cleanup_at}:00", "repetition": "",
                 "description": "Buzzbee: clear old cache files", "limit": "PT15M"})
     out.append({"name": "Review", "job": "review", "start": f"{today}T00:05:00",
@@ -74,8 +76,16 @@ def tasks() -> list[dict]:
     return out
 
 
+def _delete(name: str) -> bool:
+    out = subprocess.run(["schtasks", "/delete", "/tn", name, "/f"], capture_output=True, text=True,
+                         creationflags=NO_WINDOW)
+    return out.returncode == 0
+
+
 def install() -> list[str]:
     done = []
+    for old in LEGACY:
+        _delete(f"{FOLDER}\\{old}")
     for t in tasks():
         xml = _TASK.format(description=escape(t["description"]), start=t["start"], repetition=t["repetition"],
                            limit=t["limit"], command=escape(str(_pythonw())),
@@ -95,12 +105,9 @@ def install() -> list[str]:
 
 def uninstall() -> list[str]:
     removed = []
-    for t in tasks():
-        name = f"{FOLDER}\\{t['name']}"
-        out = subprocess.run(["schtasks", "/delete", "/tn", name, "/f"], capture_output=True, text=True,
-                             creationflags=NO_WINDOW)
-        if out.returncode == 0:
-            removed.append(name)
+    for name in [t["name"] for t in tasks()] + LEGACY:
+        if _delete(f"{FOLDER}\\{name}"):
+            removed.append(f"{FOLDER}\\{name}")
     return removed
 
 

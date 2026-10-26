@@ -163,3 +163,18 @@ def test_main_subject_is_the_name_most_shots_use():
     plan = MemePlan.model_construct(hook=step("saffron crocus", ""), beats=[step("", "saffron crocus"), step("Kashmir")])
     assert main_subject(plan) == "saffron crocus"
     assert main_subject(MemePlan.model_construct(hook=step("Kashmir"), beats=[step("")])) == ""
+
+
+def test_lock_held_by_a_live_job_is_waited_for_then_refused(tmp_path, monkeypatch):
+    import os
+    import time
+
+    import pytest
+
+    from ytagent import autopilot
+
+    monkeypatch.setattr(autopilot, "get_settings", lambda: type("S", (), {"data_dir": tmp_path})())
+    (tmp_path / "autopilot.lock").write_text(str(os.getppid()), encoding="utf-8")  # a live process
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match="another autopilot job"), autopilot.lock(wait_s=0):
+        pass

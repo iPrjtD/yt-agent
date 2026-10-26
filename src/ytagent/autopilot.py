@@ -62,21 +62,26 @@ def _pid_alive(pid: int) -> bool:
 
 
 @contextmanager
-def lock(name: str = "autopilot"):
+def lock(name: str = "autopilot", wait_s: int = 0):
     """One job at a time (rendering and the local models need the whole CPU).
 
     The lock holds the owner's process id: if that process is gone (crashed, or killed by Task Scheduler's
-    time limit) the lock is stale and is taken over at once.
+    time limit) the lock is stale and is taken over at once. A live owner is waited for up to `wait_s`.
     """
     path = get_settings().data_dir / f"{name}.lock"
-    if path.exists():
+    deadline = time.time() + wait_s
+    while path.exists():
         try:
             owner = int(path.read_text(encoding="utf-8").strip() or 0)
         except (OSError, ValueError):
             owner = 0
         if owner != os.getpid() and _pid_alive(owner):
+            if time.time() < deadline:
+                time.sleep(15)
+                continue
             raise RuntimeError(f"another autopilot job is running ({path.name}, pid {owner})")
         log.info("taking over stale lock %s (pid %s is gone)", path.name, owner)
+        break
     path.write_text(str(os.getpid()), encoding="utf-8")
     try:
         yield
@@ -256,9 +261,14 @@ def job_produce() -> dict:
 
 
 def job_cleanup() -> dict:
-    """Delete stock/archive cache older than 14 days and render leftovers; keep finished videos."""
-    data = get_settings().data_dir
-    cutoff = time.time() - 14 * 86400
+    """Delete stock/archive cache older than 7 days, and the local video files of finished Shorts (published,
+    rejected, failed) after `keep_video_days`: they live on YouTube; scripts and plans are kept."""
+    from ytagent.db import session_scope
+    from ytagent.models import Video
+
+    settings = get_settings()
+    data = settings.data_dir
+    cutoff = time.time() - 7 * 86400
     removed = 0
     for path in (data / "cache" / "pixabay").glob("*"):
         if path.is_file() and path.stat().st_mtime < cutoff:
@@ -267,7 +277,18 @@ def job_cleanup() -> dict:
     for path in (data / "logs").glob("autopilot-*.log"):
         if path.stat().st_mtime < time.time() - 30 * 86400:
             path.unlink(missing_ok=True)
-    return {"cache_files_removed": removed}
+    video_cutoff = time.time() - settings.autopilot.keep_video_days * 86400
+    freed = 0
+    with session_scope() as s:
+        done = s.scalars(select(Video).where(Video.status.in_(["published", "rejected", "failed"]))).all()
+        folders = [Path(v.meta["dir"]) for v in done if (v.meta or {}).get("dir")]
+    for folder in folders:
+        for name in ("final.mp4", "voice.wav"):
+            path = folder / name
+            if path.is_file() and path.stat().st_mtime < video_cutoff:
+                path.unlink(missing_ok=True)
+                freed += 1
+    return {"cache_files_removed": removed, "video_files_removed": freed}
 
 
 def job_review() -> dict:
@@ -288,9 +309,9 @@ def run(job: str) -> dict:
     log_path = setup_logging()
     log.info("=== %s ===", job)
     try:
-        with lock("review" if job in LIGHT_JOBS else "autopilot"):
-            if job != "cleanup":
-                ensure_services(need_models=job not in LIGHT_JOBS)
+        # Heavy jobs queue behind each other (e.g. ideas while a Short renders) instead of being skipped.
+        with lock("review" if job in LIGHT_JOBS else "autopilot", wait_s=0 if job in LIGHT_JOBS else 1200):
+            ensure_services(need_models=job not in LIGHT_JOBS | {"cleanup"})
             result = JOBS[job]()
             write_ready_list()
     except Exception as exc:

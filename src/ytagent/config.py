@@ -104,7 +104,9 @@ class VisualsCfg(BaseModel):
 
 class AutopilotCfg(BaseModel):
     ideas_every_hours: int = 3
-    produce_at: list[str] = Field(default_factory=lambda: ["01:00", "03:30"])
+    produce_every_hours: int = 1    # one Short per run while the PC is on
+    produce_start: str = "00:30"    # first run of the day; offset from ideas (:15) and review (:05)
+    keep_video_days: int = 7        # then delete final.mp4/voice.wav of finished Shorts (they live on YouTube)
     cleanup_at: str = "05:30"
     score_limit: int = 12
     require_gemini_writer: bool = True

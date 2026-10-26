@@ -147,7 +147,9 @@ publishing:
 
 autopilot:
   ideas_every_hours: 3             # collect + score ideas
-  produce_at: ["01:00", "03:30"]   # one Short per time, overnight (local time)
+  produce_every_hours: 1           # one Short every hour while the PC is on (missed runs are not stacked)
+  produce_start: "00:30"           # runs at :30 past, away from ideas (:15) and review (:05)
+  keep_video_days: 7              # then delete the local video files of published/rejected Shorts
   cleanup_at: "05:30"
   score_limit: 12                  # topics assessed per ideas run (local model)
   require_gemini_writer: true      # postpone a Short rather than write it with the weaker local model
