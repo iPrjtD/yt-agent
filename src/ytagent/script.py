@@ -72,6 +72,9 @@ class Shot(BaseModel):
     words: str = Field(description="the first 3 words of the phrase this shot covers, copied exactly")
     query: str = Field(description="2-5 word stock-footage search that literally shows those words")
     scene: str = Field(description="one vivid sentence describing the exact scene, for an illustration")
+    subject: str = Field(description="the specific named thing, place, person or event this shot shows, so "
+                                     "real photos of it are used (e.g. 'saffron crocus', 'Mount Roraima'); "
+                                     "empty if the shot is generic")
 
 
 class BeatPlan(BaseModel):
@@ -94,10 +97,11 @@ def plan_meme(script: ShortScript, fmt: str) -> MemePlan:
     """Second pass: emotions, Buzzbee reactions, meme captions, sound effects and quips for each beat."""
     numbered = "\n".join(f"{i}: {line}" for i, line in enumerate([script.hook, *(b.narration for b in script.beats)]))
     prompt = (ROOT / "prompts" / "meme_plan.md").read_text(encoding="utf-8").format(
-        channel=get_settings().channel.name, format_name=fmt, lines=numbered)
+        channel=get_settings().channel.name, format_name=fmt, lines=numbered, title=script.title)
     plan = llm.complete_json("writer", [{"role": "user", "content": prompt}], MemePlan, temperature=0.8)
     blanks = [BeatPlan(emotion="warm", reaction="none", sfx="none", meme_top="", meme_bottom="", buzz_line="",
-                       shots=[Shot(words="", query=b.visual_query, scene=b.visual_query)]) for b in script.beats]
+                       shots=[Shot(words="", query=b.visual_query, scene=b.visual_query, subject=b.subject)])
+              for b in script.beats]
     plan.beats = (plan.beats + blanks[len(plan.beats):])[: len(script.beats)]
     return plan
 

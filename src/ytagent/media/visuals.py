@@ -108,6 +108,19 @@ def _terms(text: str) -> set[str]:
     return {w.rstrip("s") for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 2 and w not in _STOP}
 
 
+# Words that name a kind of thing rather than the thing itself ("Mount" Roraima, saffron "flower").
+_GENERIC = {"mount", "mountain", "lake", "river", "city", "island", "temple", "fort", "palace", "park",
+            "national", "valley", "desert", "beach", "flower", "plant", "tree", "food", "dish", "spice",
+            "street", "old", "ancient", "great", "new", "falls", "fall", "sea", "ocean", "bay", "church",
+            "tower", "bridge", "museum", "statue", "cave", "forest", "village", "state", "kingdom", "empire"}
+
+
+def key_terms(subject: str) -> set[str]:
+    """The distinctive words of a name: {"roraima"} for "Mount Roraima", {"saffron", "crocus"} for "saffron crocus"."""
+    terms = _terms(subject)
+    return (terms - _GENERIC) or terms
+
+
 def relevance(query: str, hit: dict) -> int:
     """How many meaningful query words appear in the hit's tags (0 for anything tagged cartoon/abstract/3D)."""
     raw = hit.get("tags", "").lower()
@@ -236,16 +249,18 @@ _OK_LICENSES = re.compile(r"^(public domain|pd|cc0|cc by(-sa)? [\d.]+|no restric
 _NO_CREDIT = re.compile(r"^(public domain|pd|cc0|no restrictions)", re.I)
 
 
-def commons_candidates(query: str, used: set[str], limit: int = 6, require_title: bool = False) -> list[Candidate]:
+def commons_candidates(query: str, used: set[str], limit: int = 6, require_title: bool = False,
+                       search: str = "") -> list[Candidate]:
     """Wikimedia Commons photos with a reusable licence; CC licences carry a credit line.
 
-    `require_title`: the file name must mention the query (for named subjects that CLIP can't recognise).
+    `require_title`: the file name must mention the query's distinctive words (for named subjects that CLIP
+    can't recognise). `search` overrides the search text (e.g. subject + scene words).
     """
     try:
         resp = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=30, headers=HEADERS, params={
-            "action": "query", "generator": "search", "gsrsearch": f"{query} filetype:bitmap", "gsrnamespace": 6,
-            "gsrlimit": 15, "prop": "imageinfo", "iiprop": "url|extmetadata|size", "iiurlwidth": 1440,
-            "format": "json", "formatversion": 2})
+            "action": "query", "generator": "search", "gsrsearch": f"{search or query} filetype:bitmap",
+            "gsrnamespace": 6, "gsrlimit": 20, "prop": "imageinfo", "iiprop": "url|extmetadata|size",
+            "iiurlwidth": 1920, "format": "json", "formatversion": 2})
         resp.raise_for_status()
     except httpx.HTTPError:
         return []
@@ -257,13 +272,13 @@ def commons_candidates(query: str, used: set[str], limit: int = 6, require_title
         thumb = info.get("thumburl", "")
         if f"c{page['pageid']}" in used or not _OK_LICENSES.match(licence) or info.get("width", 0) < 800 or not thumb:
             continue
-        if require_title and not _terms(query) & _terms(page["title"]):
+        if require_title and not key_terms(query) & _terms(page["title"]):
             continue
         artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip() or "Unknown"
         credit = "" if _NO_CREDIT.match(licence) else \
             f"Photo: {artist}, {licence}, via Wikimedia Commons ({info.get('descriptionurl', '')})"
         path = _cache_dir() / f"commons_{page['pageid']}.jpg"
-        out.append(Candidate(f"c{page['pageid']}", re.sub(r"/\d+px-", "/320px-", thumb),
+        out.append(Candidate(f"c{page['pageid']}", re.sub(r"/\d+px-", "/330px-", thumb),
                              lambda u=thumb, p=path: _download(u, p), still=True, credit=credit, note=page["title"]))
         if len(out) >= limit:
             break
@@ -352,6 +367,43 @@ def find_visual(query: str, min_seconds: float, used: set[str], credits: list[st
             log.info("%s %.3f for %r (%s)", cand.key, cand.score, description, cand.note[:60])
             return Visual(path, cand.still)
     log.info("no visual above %.2f for %r", MIN_MATCH, description)
+    return None
+
+
+def find_subject_visual(subject: str, scene: str, min_seconds: float, used: set[str], credits: list[str],
+                        portrait: bool = False, scene_bar: float | None = None) -> Visual | None:
+    """Real photos or footage OF a named subject (a place, thing, person or event), before look-alike stock.
+
+    Candidates must name the subject's distinctive words: Commons file titles, Pixabay tags. They are ranked
+    by how well they also show this shot's scene, e.g. "saffron crocus" + "farmer harvesting flowers".
+    `scene_bar`: for shots that did not name the subject, a photo of it is only used when it clearly shows
+    the scene on its own (scored against the scene alone, so a saffron photo never stands in for gold bars).
+    """
+    keys = key_terms(subject)
+    pool = commons_candidates(subject, used, limit=10, require_title=True)
+    if not portrait:
+        scene_words = " ".join(sorted(_terms(scene) - _terms(subject)))[:40]
+        if scene_words:  # photos of the subject doing what this shot says, when Commons has them
+            seen = {c.key for c in pool}
+            pool += [c for c in commons_candidates(subject, used, limit=6, require_title=True,
+                                                   search=f"{subject} {scene_words}") if c.key not in seen]
+        pool += [c for c in pixabay_candidates(subject, used) if keys & _terms(c.note)]
+    description = f"{subject}, portrait" if portrait else scene if scene_bar else f"{subject}, {scene}"
+    bar = scene_bar or MIN_SUBJECT_MATCH
+    # Titles/tags already name the subject (and may be drawings of historical people), so the bar is lower.
+    for cand in rank(pool, description, real_only=False):
+        if cand.score < bar:
+            break
+        if not cand.still and cand.duration and cand.duration < min_seconds:
+            continue
+        path = cand.fetch()
+        if path:
+            used.add(cand.key)
+            if cand.credit:
+                credits.append(cand.credit)
+            log.info("subject %s %.3f for %r (%s)", cand.key, cand.score, description, cand.note[:60])
+            return Visual(path, cand.still)
+    log.info("no subject visual for %r", description)
     return None
 
 

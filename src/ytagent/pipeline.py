@@ -19,7 +19,7 @@ from ytagent.media.archive import find_archive_clip
 from ytagent.media.reactions import Reaction, loudness_envelope, render_frames, render_host_frames
 from ytagent.media.render import Segment, pick_music, qa, render_short
 from ytagent.media.sfx import sfx_file
-from ytagent.media.visuals import Visual, find_visual, text_card
+from ytagent.media.visuals import Visual, find_subject_visual, find_visual, text_card
 from ytagent.media.voice import narrate_lines
 from ytagent.models import Topic, Video
 from ytagent.providers.images import available as ai_available
@@ -151,14 +151,19 @@ def _shot_times(shots: list, words: list, start: float, end: float) -> list[floa
 
 
 def _shot_visual(shot, subject: str, portrait: bool, seconds: float, used: set[str], credits: list[str],
-                 work: Path) -> tuple[Visual | None, bool]:
+                 work: Path, main_subject: str = "") -> tuple[Visual | None, bool]:
     """Best visual for one shot: the named subject's real footage, real stock that shows the words,
     else an AI-drawn scene. Never an unrelated clip."""
     ai_cache = get_settings().data_dir / "cache" / "ai"
+    subject = shot.subject.strip() or subject  # the shot's own named subject, else the beat's
     if subject:
         visual, fit = _subject_visual(subject, shot.query, seconds, used, credits, portrait=portrait)
         if visual:
             return visual, fit
+    elif main_subject:  # e.g. "hands sorting spice threads" in a saffron Short: real saffron if it fits
+        visual = find_subject_visual(main_subject, shot.query, seconds, used, credits, scene_bar=STRONG_MATCH)
+        if visual:
+            return visual, False
     ai_on = ai_available()
     if ai_on and HISTORIC.search(f"{shot.scene} {shot.query}"):
         # Stock libraries have no footage of ancient/old-era moments: draw the scene instead.
@@ -173,6 +178,13 @@ def _shot_visual(shot, subject: str, portrait: bool, seconds: float, used: set[s
     return (Visual(drawn, still=True), True) if drawn else (None, False)
 
 
+def main_subject(plan: MemePlan) -> str:
+    """The subject most shots name (the thing or place the Short is about), if at least two do."""
+    names = Counter(s.subject.strip() for step in [plan.hook, *plan.beats] for s in step.shots if s.subject.strip())
+    name, count = names.most_common(1)[0] if names else ("", 0)
+    return name if count >= 2 else ""
+
+
 def _fill_subjects(script: ShortScript, person: str) -> None:
     """Older scripts have no per-beat subject: for a person's story, the beats up to their quote are about them."""
     if not person or any(b.subject for b in script.beats):
@@ -184,7 +196,7 @@ def _fill_subjects(script: ShortScript, person: str) -> None:
 
 def _subject_visual(subject: str, scene: str, seconds: float, used: set[str], credits: list[str],
                     portrait: bool) -> tuple[Visual | None, bool]:
-    """Real footage of the named subject: a portrait to open on, else archive film, else a real photo.
+    """Real footage of the named subject: a portrait to open on, else archive film, else real photos/stock of it.
 
     Returns (visual, fit) where fit=True shows the whole (4:3 archive) frame over a blurred background.
     """
@@ -194,7 +206,7 @@ def _subject_visual(subject: str, scene: str, seconds: float, used: set[str], cr
         clip = find_archive_clip(subject, scene, seconds, used, credits)
         if clip:
             return Visual(clip, still=False), True
-    return find_visual(scene, seconds, used, credits, person=subject), False
+    return find_subject_visual(subject, scene, seconds, used, credits, portrait=portrait), False
 
 
 def _person(topic: Topic) -> str:
@@ -259,6 +271,7 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         _fill_subjects(script, person)
         subjects = [person or script.beats[0].subject] + [b.subject for b in script.beats]
         steps = [plan.hook, *plan.beats]
+        main = main_subject(plan)
         segments, labels, used, credits = [], [], set(), []
         for i, (start, end) in enumerate(zip(starts, ends, strict=True)):
             if i == n_units - 1:  # outro: branded end card
@@ -274,7 +287,8 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
             for k, cut in enumerate(cuts):
                 seconds = (cuts[k + 1] if k + 1 < len(cuts) else end) - cut
                 visual, fit = _shot_visual(shots[k], subjects[i], portrait=bool(person) and i == 0 and k == 0,
-                                           seconds=seconds, used=used, credits=credits, work=work)
+                                           seconds=seconds, used=used, credits=credits, work=work,
+                                           main_subject=main)
                 if visual is None and segments and k > 0:  # nothing fits: hold the previous shot longer
                     segments[-1].duration += seconds
                     continue

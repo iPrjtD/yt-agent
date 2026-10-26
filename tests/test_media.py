@@ -86,13 +86,13 @@ def test_shot_times_cut_where_the_phrase_is_spoken():
 
     words = [Word(t, i * 0.5, i * 0.5 + 0.4, 0) for i, t in enumerate(
         "Before age nine he was sent to a workhouse twice and by fourteen his mother was in an asylum".split())]
-    shots = [Shot(words="Before age nine", query="q", scene="s"), Shot(words="and by fourteen", query="q", scene="s")]
+    shots = [Shot(words="Before age nine", query="q", scene="s", subject=""), Shot(words="and by fourteen", query="q", scene="s", subject="")]
     cuts = _shot_times(shots, words, start=0.0, end=10.0)
     assert cuts == [0.0, 5.0]  # "and" is word 10 -> 5.0 s
-    unknown = [Shot(words="Before age", query="q", scene="s"), Shot(words="not in line", query="q", scene="s")]
+    unknown = [Shot(words="Before age", query="q", scene="s", subject=""), Shot(words="not in line", query="q", scene="s", subject="")]
     assert _shot_times(unknown, words, 0.0, 10.0) == [0.0, 5.0]  # not found: evenly spread
-    gap = [Shot(words="Before age", query="q", scene="s"), Shot(words="nowhere", query="q", scene="s"),
-           Shot(words="his mother", query="q", scene="s")]
+    gap = [Shot(words="Before age", query="q", scene="s", subject=""), Shot(words="nowhere", query="q", scene="s", subject=""),
+           Shot(words="his mother", query="q", scene="s", subject="")]
     assert _shot_times(gap, words, 0.0, 10.0) == [0.0, 3.25, 6.5]  # a missing middle cue no longer crashes
 
 
@@ -140,3 +140,26 @@ def test_parse_dyk_extracts_fact_and_article():
     assert len(items) == 1
     assert items[0].title == "Did you know: octopuses have three hearts"
     assert items[0].url == "https://en.wikipedia.org/wiki/Octopus"
+
+
+def test_key_terms_keep_the_distinctive_part_of_a_name():
+    from ytagent.media.visuals import key_terms
+
+    assert key_terms("Mount Roraima") == {"roraima"}
+    assert key_terms("saffron crocus") == {"saffron", "crocu"}  # plural-stripped, like the tags it is matched to
+    assert key_terms("Taj Mahal") == {"taj", "mahal"}
+    assert key_terms("Great Wall") == {"wall"}
+    assert key_terms("Mountain") == {"mountain"}  # nothing distinctive: keep what there is
+
+
+def test_main_subject_is_the_name_most_shots_use():
+    from ytagent.pipeline import main_subject
+    from ytagent.script import BeatPlan, MemePlan, Shot
+
+    def step(*subjects):
+        return BeatPlan(emotion="warm", reaction="none", sfx="none", meme_top="", meme_bottom="", buzz_line="",
+                        shots=[Shot(words="w", query="q", scene="s", subject=x) for x in subjects])
+
+    plan = MemePlan.model_construct(hook=step("saffron crocus", ""), beats=[step("", "saffron crocus"), step("Kashmir")])
+    assert main_subject(plan) == "saffron crocus"
+    assert main_subject(MemePlan.model_construct(hook=step("Kashmir"), beats=[step("")])) == ""

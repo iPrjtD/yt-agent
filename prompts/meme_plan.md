@@ -2,6 +2,7 @@ You are the meme editor of {channel}, a YouTube Shorts channel with a cartoon be
 Turn this script into a fresh, modern, meme-style edit. Do NOT change the narration.
 
 Format: {format_name}
+Title: {title}
 Script (line 0 is the hook, then the beats):
 {lines}
 
@@ -28,6 +29,10 @@ For the hook and for EVERY beat, plan:
     street 1900s"). Never abstract ("success", "knowledge"), never names of living people or brands.
   - scene: one vivid sentence describing the exact moment as a picture (who, doing what, where, era),
     used to draw an illustration when no real footage fits. No text or captions in the picture.
+  - subject: when the shot shows the specific thing, place, person or event the Short is about (or another
+    named one), its precise name, so real photos and footage OF IT are used instead of look-alike stock:
+    "saffron crocus", "Mount Roraima", "Taj Mahal", "Charlie Chaplin", "Apollo 11". Most shots of a
+    Short about one place or thing should name it. "" only for generic shots (money, crowds, the viewer).
 
 Keep it tasteful for the topic: for sad moments (poverty, illness, loss) use sad/think reactions and serious
 emotion, not jokes. Humour goes on the comeback, the irony or the punchline.
