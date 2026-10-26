@@ -13,7 +13,7 @@ from ytagent.research import Brief
 
 log = logging.getLogger(__name__)
 
-MIN_WORDS, MAX_WORDS = 100, 130  # Buzzbee's expressive voice is ~2.1 words/s; keeps Shorts under a minute
+MIN_WORDS, MAX_WORDS = 65, 80  # Buzzbee's voice is ~2.1 words/s: about 35 s, where Shorts keep viewers to the end
 
 
 class Beat(BaseModel):
@@ -28,11 +28,11 @@ class ShortScript(BaseModel):
     title: str = Field(max_length=100)
     hook: str
     hook_visual_query: str
-    beats: list[Beat] = Field(min_length=3, max_length=7)
+    beats: list[Beat] = Field(min_length=3, max_length=5)
     outro: str
     description: str
     tags: list[str]
-    pillar: Literal["facts", "funny", "motivation", "story", "trending"]
+    pillar: Literal["facts", "funny", "motivation", "story", "trending", "money", "world"]
     sources_used: list[int] = Field(default_factory=list)
 
     def lines(self) -> list[str]:

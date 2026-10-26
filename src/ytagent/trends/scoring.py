@@ -29,12 +29,12 @@ class TopicAssessment(BaseModel):
     sensitive: bool
     blocked: bool
     evergreen: bool
-    content_format: Literal["facts", "funny", "motivation", "story", "trending"]
+    content_format: Literal["facts", "funny", "motivation", "story", "trending", "money", "world"]
     best_format: Literal["short", "long", "both"]
     angle: str
 
 
-_FORMATS = {"facts", "funny", "motivation", "story", "trending"}
+_FORMATS = {"facts", "funny", "motivation", "story", "trending", "money", "world"}
 
 
 def _hint_format(topic: Topic) -> str:

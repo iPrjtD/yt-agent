@@ -38,6 +38,8 @@ PLAYLISTS = [
     PlaylistSpec("🎬 The Real Story", "Incredible true stories, mysteries and what really happened behind the scenes."),
     PlaylistSpec("😂 Funny Buzz", "Funny facts, weird history and the most hilarious things on the planet."),
     PlaylistSpec("🔥 Bee Inspired", "Real words and real stories from great people to fire you up."),
+    PlaylistSpec("💰 Money Buzz", "Prices, everyday economics and how big brands really make money, explained."),
+    PlaylistSpec("🌍 World Buzz", "Surprising countries, amazing places and travel spots worth the hype."),
     PlaylistSpec("🔍 Buzz Deep Dives", "Our weekly longer videos on the biggest stories."),
     PlaylistSpec("Pending review", "Agent drafts waiting for owner review.", "private"),
     PlaylistSpec("Urgent review", "Time-sensitive agent drafts; review first.", "private"),

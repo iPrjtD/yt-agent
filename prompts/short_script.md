@@ -11,14 +11,16 @@ Research (the ONLY facts and quotes you may use; never invent numbers, dates, na
 FORMAT: {format_name}
 {format_guide}
 
-Length: {min_words}-{max_words} spoken words in total (about 45-55 seconds).
+Length: {min_words}-{max_words} spoken words in total (about 30-38 seconds). Short is the point: every word
+must earn its place, cut any setup or filler.
 
 Structure:
-- hook: the first line, max 12 words, instantly gripping. Never start with "Hey guys", "Welcome",
+- hook: the first line, max 10 words, instantly gripping. Never start with "Hey guys", "Welcome",
   "In this video", "Did you know" or the channel name.
 - hook_visual_query: the most striking real-footage scene for the opening second.
-- beats: 4 to 6 beats; each beat is 1-2 short spoken sentences (max 30 words) with momentum.
-- outro: one short natural line inviting people to follow Buzzbee. Vary the wording.
+- beats: 3 or 4 beats; each beat is 1-2 short spoken sentences (max 20 words) with momentum.
+- outro: max 8 words. Best: a line that flows straight back into the hook so the Short loops when it
+  replays; or a quick, natural invite to follow Buzzbee. Vary the wording.
 
 For every beat also give:
 - visual_query: 2-4 plain English words for a REAL stock footage scene that shows what is being said

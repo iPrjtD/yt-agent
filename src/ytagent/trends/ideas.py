@@ -51,7 +51,7 @@ class WikipediaDYK:
 
 class Idea(BaseModel):
     title: str = Field(description="the specific surprising fact, question or story, max 12 words")
-    format: Literal["facts", "funny", "story"]
+    format: Literal["facts", "funny", "story", "money", "world"]
 
 
 class IdeaList(BaseModel):
@@ -72,7 +72,9 @@ class EvergreenIdeas:
             "Each idea must be ONE specific, surprising and TRUE thing that can be verified on Wikipedia or a "
             "reputable site (e.g. 'Octopuses have three hearts and blue blood', 'The man who survived two "
             "atomic bombs'). Mix formats: 'facts' (mind-blowing facts), 'funny' (funny or weird facts), "
-            "'story' (a short true story). Avoid politics, tragedies, medical advice and anything you are unsure "
+            "'story' (a short true story), 'money' (prices, everyday economics, how brands make money; no investment "
+            "advice), 'world' (surprising countries, places, travel destinations). Avoid politics, wars, "
+            "tragedies, medical advice and anything you are unsure "
             "is true. No generic topics like 'facts about space'.")
         # One call per run, and idea quality drives everything downstream: use the writer model.
         ideas = llm.complete_json("writer", [{"role": "user", "content": prompt}], IdeaList).ideas

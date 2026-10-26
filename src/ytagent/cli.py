@@ -206,7 +206,7 @@ def llm_test(role: str = "writer") -> None:
 def short_make(
     topic_id: int = typer.Option(None, help="Topic id (default: best scored topic)."),
     upload: bool = typer.Option(None, "--upload/--no-upload", help="Override publishing.mode."),
-    fmt: str = typer.Option(None, "--format", help="facts | funny | motivation | story | trending"),
+    fmt: str = typer.Option(None, "--format", help="facts | funny | motivation | story | trending | money | world"),
     fresh: bool = typer.Option(False, "--fresh", help="Write a new script even if an earlier attempt saved one."),
 ) -> None:
     """Research, write, voice, render and package (or upload privately) one Short."""

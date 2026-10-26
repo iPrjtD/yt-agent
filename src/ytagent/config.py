@@ -91,7 +91,7 @@ class VideoCfg(BaseModel):
     width: int = 1080
     height: int = 1920
     fps: int = 30
-    target_seconds: int = 59        # narration is nudged (max 8% faster) towards this
+    target_seconds: int = 36        # narration is nudged (max 8% faster) towards this
     max_short_seconds: int = 90     # QA limit (YouTube Shorts allow up to 3 minutes)
 
 

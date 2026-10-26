@@ -16,10 +16,13 @@ from ytagent.youtube import data_api
 log = logging.getLogger(__name__)
 
 # YouTube categories: 22 People & Blogs, 23 Comedy, 24 Entertainment, 27 Education
-CATEGORY = {"facts": "27", "funny": "23", "motivation": "22", "story": "24", "trending": "24"}
-CATEGORY_NAME = {"22": "People & Blogs", "23": "Comedy", "24": "Entertainment", "27": "Education"}
+CATEGORY = {"facts": "27", "funny": "23", "motivation": "22", "story": "24", "trending": "24", "money": "27",
+            "world": "19"}
+CATEGORY_NAME = {"19": "Travel & Events", "22": "People & Blogs", "23": "Comedy", "24": "Entertainment",
+                 "27": "Education"}
 PLAYLIST = {"facts": "🧠 Bee Curious", "funny": "😂 Funny Buzz", "motivation": "🔥 Bee Inspired",
-            "story": "🎬 The Real Story", "trending": "🐝 Buzz Check"}
+            "story": "🎬 The Real Story", "trending": "🐝 Buzz Check", "money": "💰 Money Buzz",
+            "world": "🌍 World Buzz"}
 HASHTAGS = "#shorts #buzzbee"
 
 
