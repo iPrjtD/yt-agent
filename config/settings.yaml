@@ -141,9 +141,9 @@ publishing:
   mode: api
   contains_synthetic_media: false  # true only for realistic AI visuals or voice imitating real people
   publish_mode: slot               # slot: next free slot below | now: publish as soon as you approve
-  slots: ["13:00", "19:30"]        # local times when India-first Shorts audiences are most active
+  slots: ["09:00", "13:00", "17:00", "21:00"]  # local times; India-first audiences, spread through the day
   timezone: Asia/Kolkata
-  min_gap_hours: 4                 # never two Shorts closer than this
+  min_gap_hours: 3                 # never two Shorts closer than this
 
 autopilot:
   ideas_every_hours: 3             # collect + score ideas
