@@ -55,3 +55,8 @@ Changing a model is a one-line edit to `llm:` in `settings.yaml`. Any [LiteLLM](
 ```bash
 uv run pytest
 ```
+
+## License
+
+The code is released under the [MIT License](LICENSE). Stock footage, music, fonts and voice models the agent downloads keep
+their own licenses.
