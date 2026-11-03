@@ -213,3 +213,43 @@ def test_trend_topics_that_read_like_news_are_rejected():
     assert newsy("Pink lake in Australia", a(8, evergreen=False), from_trends=True)
     assert not newsy("This Australian lake is bubblegum pink", a(8), from_trends=True)
     assert not newsy("Weather on Venus rains metal", a(7), from_trends=False)  # evergreen ideas skip the word check
+
+
+def test_one_shared_word_needs_a_stronger_match():
+    from ytagent.media.visuals import MIN_SUBJECT_MATCH, ONE_WORD_SUBJECT_MATCH, key_terms, subject_bar
+
+    assert subject_bar(key_terms("Sanjay Gupta"), "File:Sanjay Gupta.jpg") == MIN_SUBJECT_MATCH
+    assert subject_bar(key_terms("Zinda"), "File:Main Street of Shah-i-Zinda 02.jpg") == ONE_WORD_SUBJECT_MATCH
+    assert subject_bar(key_terms("saffron crocus"), "File:Saffron Hill.webm") == ONE_WORD_SUBJECT_MATCH
+
+
+def test_motion_share_counts_moving_seconds():
+    from ytagent.pipeline import _motion
+
+    assert _motion([]) == 1.0
+    assert _motion([(False, "real", 3.0), (True, "real", 1.0)]) == 0.75
+    assert _motion([(True, "real", 2.0), (True, "ai", 2.0)]) == 0.0
+
+
+def test_ca_bundle_loads_fast_and_still_verifies():
+    import ssl
+    import time
+
+    import certifi
+
+    import ytagent  # noqa: F401  (installs the loader)
+
+    start = time.time()
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    assert time.time() - start < 3
+    assert len(ctx.get_ca_certs()) > 50 and ctx.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_names_must_match_every_distinctive_word():
+    from ytagent.media.visuals import names_all
+
+    assert not names_all("Steven Sinofsky", "stevens canyon, early, morning")
+    assert not names_all("Steve Jobs", "File:Interview with Steve Wozniak.webm")
+    assert names_all("Steve Jobs", "File:Steve Jobs Headshot 2010.jpg")
+    assert names_all("saffron crocus", "crocuses, saffron, flower")
+    assert names_all("Mount Roraima", "File:Monte Roraima.jpg")

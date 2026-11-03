@@ -18,12 +18,15 @@ import httpx
 from PIL import Image
 
 from ytagent.config import get_settings
-from ytagent.media.visuals import _NO_CREDIT, _OK_LICENSES, HEADERS, _blank, _cache_dir, _terms
+from ytagent.media.visuals import _NO_CREDIT, _OK_LICENSES, HEADERS, _blank, _cache_dir, names_all
 from ytagent.proc import NO_WINDOW
 
 log = logging.getLogger(__name__)
 
 MIN_ARCHIVE_MATCH = 0.22   # archive film frames are grainy/black-and-white, so CLIP scores run a little lower
+# Common nouns ("saffron", "gold") are things CLIP knows well; a weak score there means the film is about
+# something else that shares the word (e.g. "Saffron Hill", a London street).
+MIN_THING_MATCH = 0.25
 OFFSETS_PER_FILM = 8
 FILMS_PER_SUBJECT = 4
 
@@ -62,7 +65,7 @@ def find_films(subject: str) -> list[Film]:
             continue
         # The file must actually be about the subject: CLIP can't recognise lesser-known people, and a search
         # for an obscure name otherwise returns loosely related videos (e.g. medical animations).
-        if not _terms(subject) & _terms(page["title"]):
+        if not names_all(subject, page["title"]):
             continue
         artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip() or "Unknown"
         credit = "" if _NO_CREDIT.match(licence) else \
@@ -140,8 +143,9 @@ def find_archive_clip(subject: str, scene: str, seconds: float, used: set[str],
     used_films = {k.split("@")[0] for k in used if k.startswith("a")}
     ranked = sorted(((s - (0.02 if f"a{m[0].pageid}" in used_films else 0), m) for (m, _), s
                      in zip(scored, sims, strict=True)), key=lambda x: x[0], reverse=True)
+    bar = MIN_ARCHIVE_MATCH if any(w[:1].isupper() for w in subject.split()) else MIN_THING_MATCH
     for score, (film, start) in ranked:
-        if score < MIN_ARCHIVE_MATCH:
+        if score < bar:
             break
         path = _cut(film, start, seconds + 0.3)
         if path:
@@ -150,5 +154,5 @@ def find_archive_clip(subject: str, scene: str, seconds: float, used: set[str],
                 credits.append(film.credit)
             log.info("archive %s @%.0fs %.3f for %r", film.title[:60], start, score, subject)
             return path
-    log.info("no archive moment above %.2f for %r", MIN_ARCHIVE_MATCH, subject)
+    log.info("no archive moment above %.2f for %r", bar, subject)
     return None

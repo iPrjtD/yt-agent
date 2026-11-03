@@ -34,8 +34,11 @@ log = logging.getLogger(__name__)
 CACHE_TTL_S = 24 * 3600  # Pixabay asks API clients to cache search results for 24 h
 ENDPOINTS = {"video": "https://pixabay.com/api/videos/", "photo": "https://pixabay.com/api/"}
 MIN_MATCH = 0.24      # CLIP cosine: ~0.27-0.31 clear match, <=0.20 unrelated (calibrated on Pixabay previews)
-MIN_SUBJECT_MATCH = 0.17  # Commons images whose file title names the subject (CLIP may not know the person)
-VIDEO_BONUS = 0.03    # prefer moving footage over a photo when they match about equally (motion keeps viewers)
+MIN_SUBJECT_MATCH = 0.20  # Commons images whose file title names the subject (CLIP may not know the person)
+# A title sharing only ONE distinctive word with the subject is often something else ("Zinda" -> "Shah-i-Zinda"
+# street, "saffron" -> "Saffron Hill"), so it must also clearly show the scene.
+ONE_WORD_SUBJECT_MATCH = 0.24
+VIDEO_BONUS = 0.06    # prefer moving footage among candidates that clear the bar (motion keeps viewers)
 HEADERS = {"User-Agent": USER_AGENT}  # Wikimedia rejects requests without a descriptive User-Agent
 
 
@@ -53,7 +56,8 @@ class Candidate:
     still: bool
     credit: str = ""                 # attribution line when the licence needs one
     note: str = ""
-    score: float = field(default=0.0)
+    score: float = field(default=0.0)  # ranking score: CLIP similarity + video bonus
+    sim: float = field(default=0.0)    # CLIP similarity alone: quality bars are checked against this
     preview_video: str = ""          # small video to grab a mid-clip frame from (thumbnails can hide animations)
     duration: float = 0.0
 
@@ -119,6 +123,21 @@ def key_terms(subject: str) -> set[str]:
     """The distinctive words of a name: {"roraima"} for "Mount Roraima", {"saffron", "crocus"} for "saffron crocus"."""
     terms = _terms(subject)
     return (terms - _GENERIC) or terms
+
+
+def names_all(subject: str, text: str) -> bool:
+    """Every distinctive word of the name appears in `text` as a whole word: "Steve Jobs" is not "Steve
+    Wozniak", "Steven" is not "Stevens Canyon". Lowercase words (things) may also match their plural."""
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    raw = [w for w in re.findall(r"[A-Za-z]+", subject) if len(w) > 2 and w.lower() not in _STOP]
+    distinctive = [w for w in raw if w.lower() not in _GENERIC] or raw
+    return bool(distinctive) and all(
+        w.lower() in words or (w.islower() and (f"{w}s" in words or f"{w}es" in words)) for w in distinctive)
+
+
+def subject_bar(keys: set[str], title: str) -> float:
+    """CLIP bar for a file whose title/tags name the subject: higher when only one distinctive word matches."""
+    return MIN_SUBJECT_MATCH if len(keys & _terms(title)) >= 2 else ONE_WORD_SUBJECT_MATCH
 
 
 def relevance(query: str, hit: dict) -> int:
@@ -341,6 +360,7 @@ def rank(candidates: list[Candidate], description: str, real_only: bool = True,
         if real_only and not real:
             log.debug("drop %s (looks like a cartoon/render): %s", cand.key, cand.note[:50])
             continue
+        cand.sim = sim
         cand.score = sim + (0 if cand.still else video_bonus)
         ranked.append(cand)
     return sorted(ranked, key=lambda c: c.score, reverse=True)
@@ -348,10 +368,10 @@ def rank(candidates: list[Candidate], description: str, real_only: bool = True,
 
 def find_visual(query: str, min_seconds: float, used: set[str], credits: list[str] | None = None,
                 person: str = "", min_match: float | None = None,
-                video_bonus: float = VIDEO_BONUS) -> Visual | None:
+                video_bonus: float = VIDEO_BONUS, video_only: bool = False) -> Visual | None:
     """The best-matching real visual for a shot, or None if nothing clears the quality bar
     (`min_match` overrides visuals.min_match, e.g. stricter when an AI scene can be drawn instead; a bigger
-    `video_bonus` for the opening shot, where motion matters most)."""
+    `video_bonus` for the opening shot, where motion matters most; `video_only` skips photos)."""
     credits = credits if credits is not None else []
     bar = min_match if min_match is not None else get_settings().visuals.min_match
     if person:  # a real photo of the subject (historical drawings/engravings of them are fine too)
@@ -360,10 +380,14 @@ def find_visual(query: str, min_seconds: float, used: set[str], credits: list[st
     else:
         pool = pixabay_candidates(query, used) + nasa_candidates(query, used) + commons_candidates(query, used, 4)
         description = query
+    if video_only:
+        pool = [c for c in pool if not c.still]
     for cand in rank(pool, description, real_only=not person, video_bonus=video_bonus):
         # Subject images (title already names the subject; may be drawings/engravings) need a lower bar.
-        if cand.score < (MIN_SUBJECT_MATCH if person else bar):
-            break
+        if cand.sim < (MIN_SUBJECT_MATCH if person else bar):
+            continue
+        if not cand.still and cand.duration and cand.duration < min_seconds:
+            continue
         path = cand.fetch()
         if path:
             used.add(cand.key)
@@ -371,13 +395,13 @@ def find_visual(query: str, min_seconds: float, used: set[str], credits: list[st
                 credits.append(cand.credit)
             log.info("%s %.3f for %r (%s)", cand.key, cand.score, description, cand.note[:60])
             return Visual(path, cand.still)
-    log.info("no visual above %.2f for %r", MIN_MATCH, description)
+    log.info("no visual above %.2f for %r", MIN_SUBJECT_MATCH if person else bar, description)
     return None
 
 
 def find_subject_visual(subject: str, scene: str, min_seconds: float, used: set[str], credits: list[str],
                         portrait: bool = False, scene_bar: float | None = None,
-                        video_bonus: float = VIDEO_BONUS) -> Visual | None:
+                        video_bonus: float = VIDEO_BONUS, video_only: bool = False) -> Visual | None:
     """Real photos or footage OF a named subject (a place, thing, person or event), before look-alike stock.
 
     Candidates must name the subject's distinctive words: Commons file titles, Pixabay tags. They are ranked
@@ -393,13 +417,15 @@ def find_subject_visual(subject: str, scene: str, min_seconds: float, used: set[
             seen = {c.key for c in pool}
             pool += [c for c in commons_candidates(subject, used, limit=6, require_title=True,
                                                    search=f"{subject} {scene_words}") if c.key not in seen]
-        pool += [c for c in pixabay_candidates(subject, used) if keys & _terms(c.note)]
+        # Stock tags are loose ("stevens canyon" for Steven Sinofsky): every distinctive word must be tagged.
+        pool += [c for c in pixabay_candidates(subject, used) if names_all(subject, c.note)]
+    if video_only:
+        pool = [c for c in pool if not c.still]
     description = f"{subject}, portrait" if portrait else scene if scene_bar else f"{subject}, {scene}"
-    bar = scene_bar or MIN_SUBJECT_MATCH
     # Titles/tags already name the subject (and may be drawings of historical people), so the bar is lower.
     for cand in rank(pool, description, real_only=False, video_bonus=video_bonus):
-        if cand.score < bar:
-            break
+        if cand.sim < (scene_bar or subject_bar(keys, cand.note)):
+            continue
         if not cand.still and cand.duration and cand.duration < min_seconds:
             continue
         path = cand.fetch()

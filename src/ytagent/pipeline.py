@@ -32,6 +32,7 @@ from ytagent.script import MemePlan, ShortScript, plan_meme, write_short
 log = logging.getLogger(__name__)
 
 OPENING_VIDEO_BONUS = 0.08  # the first second decides whether people stop scrolling: strongly prefer motion
+MIN_MOTION = 0.5            # below this share of moving footage so far, a shot's photo is swapped for a video
 RECOMMEND_AT = 65            # quality score from which a Short is added to the "⭐ Recommended" playlist
 SHOT_SECONDS = 4.0
 
@@ -166,14 +167,15 @@ def _shot_times(shots: list, words: list, start: float, end: float) -> list[floa
 
 
 class NoFootage(RuntimeError):
-    """The opening shot (the hook's promise) has no real footage: skip the topic before spending voice quota."""
+    """The opening shot (the hook's promise) has no real moving footage: skip the topic before spending voice
+    quota."""
 
 
 def _shot_visual(shot, subject: str, portrait: bool, seconds: float, used: set[str], credits: list[str],
                  work: Path, main_subject: str = "", real_only: bool = False,
-                 video_bonus: float = VIDEO_BONUS) -> tuple[Visual | None, bool, str]:
+                 video_bonus: float = VIDEO_BONUS, video_only: bool = False) -> tuple[Visual | None, bool, str]:
     """Best visual for one shot: the named subject's real footage, real stock that shows the words,
-    else an AI-drawn scene (not with `real_only`). Never an unrelated clip.
+    else an AI-drawn scene (not with `real_only` or `video_only`). Never an unrelated clip.
 
     Returns (visual, fit, kind) with kind "real" or "ai" (for the quality score).
     """
@@ -181,15 +183,15 @@ def _shot_visual(shot, subject: str, portrait: bool, seconds: float, used: set[s
     subject = shot.subject.strip() or subject  # the shot's own named subject, else the beat's
     if subject:
         visual, fit = _subject_visual(subject, shot.query, seconds, used, credits, portrait=portrait,
-                                      video_bonus=video_bonus)
+                                      video_bonus=video_bonus, video_only=video_only)
         if visual:
             return visual, fit, "real"
     elif main_subject:  # e.g. "hands sorting spice threads" in a saffron Short: real saffron if it fits
         visual = find_subject_visual(main_subject, shot.query, seconds, used, credits, scene_bar=STRONG_MATCH,
-                                     video_bonus=video_bonus)
+                                     video_bonus=video_bonus, video_only=video_only)
         if visual:
             return visual, False, "real"
-    ai_on = ai_available() and not real_only
+    ai_on = ai_available() and not real_only and not video_only
     if ai_on and HISTORIC.search(f"{shot.scene} {shot.query}"):
         # Stock libraries have no footage of ancient/old-era moments: draw the scene instead.
         drawn = generate_scene(shot.scene, ai_cache)
@@ -197,14 +199,36 @@ def _shot_visual(shot, subject: str, portrait: bool, seconds: float, used: set[s
             return Visual(drawn, still=True), True, "ai"
     # With AI scenes available (or for the opening), real stock must be a strong match; weaker ones get drawn.
     strict = ai_on or real_only
-    visual = find_visual(shot.query, seconds, used, credits, min_match=STRONG_MATCH if strict else None,
-                         video_bonus=video_bonus)
+    visual = find_visual(shot.query, seconds, used, credits, min_match=STRONG_MATCH if strict and not video_only
+                         else None, video_bonus=video_bonus, video_only=video_only)
     if visual:
         return visual, False, "real"
     if not ai_on:
         return None, False, ""
     drawn = generate_scene(shot.scene, ai_cache)
     return (Visual(drawn, still=True), True, "ai") if drawn else (None, False, "")
+
+
+def _opening_visual(plan: MemePlan, script: ShortScript, subject: str, main: str, used: set[str],
+                    credits: list[str], work: Path) -> tuple[Visual, bool]:
+    """Moving real footage for the first shot: of the shot itself, else of the hook's visual idea, else of the
+    Short's main subject. Raises NoFootage when there is none (the topic is skipped)."""
+    shot = plan.hook.shots[0]
+    tries = [shot] + [shot.model_copy(update={"query": q, "subject": ""})
+                      for q in dict.fromkeys((script.hook_visual_query, main)) if q and q != shot.query]
+    for k, attempt in enumerate(tries):
+        visual, fit, _ = _shot_visual(attempt, subject if k == 0 else "", portrait=False, seconds=3.0,
+                                      used=used, credits=credits, work=work, main_subject=main,
+                                      real_only=True, video_bonus=OPENING_VIDEO_BONUS, video_only=True)
+        if visual is not None:
+            return visual, fit
+    raise NoFootage(f"no real moving footage for the opening shot {shot.query!r}")
+
+
+def _motion(parts: list[tuple[bool, str, float]]) -> float:
+    """Share of the Short so far that is moving footage (1.0 before the first shot)."""
+    total = sum(sec for *_, sec in parts)
+    return sum(sec for still, _, sec in parts if not still) / total if total else 1.0
 
 
 def quality(parts: list[tuple[bool, str, float]], duration: float, niche_fit: float) -> dict:
@@ -238,7 +262,8 @@ def _fill_subjects(script: ShortScript, person: str) -> None:
 
 
 def _subject_visual(subject: str, scene: str, seconds: float, used: set[str], credits: list[str],
-                    portrait: bool, video_bonus: float = VIDEO_BONUS) -> tuple[Visual | None, bool]:
+                    portrait: bool, video_bonus: float = VIDEO_BONUS,
+                    video_only: bool = False) -> tuple[Visual | None, bool]:
     """Real footage of the named subject: a portrait to open on, else archive film, else real photos/stock of it.
 
     Returns (visual, fit) where fit=True shows the whole (4:3 archive) frame over a blurred background.
@@ -250,7 +275,7 @@ def _subject_visual(subject: str, scene: str, seconds: float, used: set[str], cr
         if clip:
             return Visual(clip, still=False), True
     return find_subject_visual(subject, scene, seconds, used, credits, portrait=portrait,
-                               video_bonus=video_bonus), False
+                               video_bonus=video_bonus, video_only=video_only), False
 
 
 def _person(topic: Topic) -> str:
@@ -298,13 +323,8 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         subjects = [person or script.beats[0].subject] + [b.subject for b in script.beats]
         main = main_subject(plan)
         used, credits = set(), []
-        # The opening must be REAL footage of what the hook promises (ideally moving): check before narrating.
-        opening_shot = plan.hook.shots[0]
-        opening, opening_fit, _ = _shot_visual(opening_shot, subjects[0], portrait=bool(person), seconds=3.0,
-                                               used=used, credits=credits, work=work, main_subject=main,
-                                               real_only=True, video_bonus=OPENING_VIDEO_BONUS)
-        if opening is None:
-            raise NoFootage(f"no real footage for the opening shot {opening_shot.query!r}")
+        # The opening must be real MOVING footage of what the hook promises: check before narrating.
+        opening, opening_fit = _opening_visual(plan, script, subjects[0], main, used, credits, work)
         # Spoken lines in order: hook, each beat (+ an optional Buzzbee quip), outro. Units = hook, beats, outro.
         tts_lines: list[Line] = []
         unit_of_line: list[int] = []
@@ -345,6 +365,13 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
                 else:
                     visual, fit, kind = _shot_visual(shots[k], subjects[i], portrait=False, seconds=seconds,
                                                      used=used, credits=credits, work=work, main_subject=main)
+                    if (visual is None or visual.still) and _motion(parts) < MIN_MOTION:
+                        # Too many photos so far: real video of the topic in general beats another still.
+                        moving, mfit, mkind = _shot_visual(shots[k], subjects[i], portrait=False, seconds=seconds,
+                                                           used=used, credits=credits, work=work,
+                                                           main_subject=main, video_only=True)
+                        if moving is not None:
+                            visual, fit, kind = moving, mfit, mkind
                 if visual is None and segments and k > 0:  # nothing fits: hold the previous shot longer
                     segments[-1].duration += seconds
                     parts[-1] = (*parts[-1][:2], parts[-1][2] + seconds)
