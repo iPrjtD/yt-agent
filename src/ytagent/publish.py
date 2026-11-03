@@ -24,6 +24,7 @@ PLAYLIST = {"facts": "🧠 Bee Curious", "funny": "😂 Funny Buzz", "motivation
             "story": "🎬 The Real Story", "trending": "🐝 Buzz Check", "money": "💰 Money Buzz",
             "world": "🌍 World Buzz"}
 HASHTAGS = "#shorts #buzzbee"
+RECOMMENDED = "⭐ Recommended"  # private playlist: the best-scoring Shorts waiting for review
 
 
 def full_description(script: ShortScript, sources: list[Source], credits: list[str] | None = None) -> str:
@@ -55,8 +56,9 @@ def _playlist_id(yt, title: str) -> str | None:
     return next((p["id"] for p in resp["items"] if p["snippet"]["title"] == title), None)
 
 
-def upload_private(final: Path, script: ShortScript, description: str) -> str:
-    """Upload as private and file it under "Pending review". Returns the YouTube video id."""
+def upload_private(final: Path, script: ShortScript, description: str, recommended: bool = False) -> str:
+    """Upload as private and file it under "Pending review" (and "⭐ Recommended" when its quality score is
+    high: review those first). Returns the YouTube video id."""
     yt = data_api()
     body = {
         "snippet": {"title": script.title[:100], "description": description, "tags": script.tags,
@@ -70,9 +72,10 @@ def upload_private(final: Path, script: ShortScript, description: str) -> str:
     while response is None:
         _, response = request.next_chunk()
     video_id = response["id"]
-    playlist = _playlist_id(yt, "Pending review")
-    if playlist:
-        yt.playlistItems().insert(part="snippet", body={"snippet": {
-            "playlistId": playlist, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
-    log.info("uploaded %s (private, pending review)", video_id)
+    for title in ["Pending review"] + ([RECOMMENDED] if recommended else []):
+        playlist = _playlist_id(yt, title)
+        if playlist:
+            yt.playlistItems().insert(part="snippet", body={"snippet": {
+                "playlistId": playlist, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
+    log.info("uploaded %s (private, pending review%s)", video_id, ", recommended" if recommended else "")
     return video_id

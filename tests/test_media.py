@@ -49,7 +49,7 @@ def test_clip_relevance_uses_tag_overlap():
 
 
 def test_full_description_lists_used_sources():
-    script = ShortScript(title="t", hook="h", hook_visual_query="q", beats=[Beat(narration="n", visual_query="q", on_screen="o", subject="")] * 3,
+    script = ShortScript(title="t", hook="h", hook_visual_query="q", hook_text="", comment_question="", beats=[Beat(narration="n", visual_query="q", on_screen="o", subject="")] * 3,
                          outro="o", description="Why it matters.\n\nSources: [2]", tags=["a"], pillar="facts",
                          sources_used=[2])
     sources = [Source("A", "https://a.example", "x"), Source("B", "https://b.example", "y")]
@@ -66,7 +66,7 @@ def test_fill_subjects_marks_story_beats_up_to_the_quote():
 
     beats = [Beat(narration=n, visual_query="q", on_screen="o", subject="") for n in
              ["Born poor.", "Became a star.", 'He said "I remain a clown."', "Your struggles do not define you."]]
-    script = ShortScript(title="t", hook="h", hook_visual_query="q", beats=beats, outro="o", description="d",
+    script = ShortScript(title="t", hook="h", hook_visual_query="q", hook_text="", comment_question="", beats=beats, outro="o", description="d",
                          tags=["a"], pillar="motivation")
     _fill_subjects(script, "Charlie Chaplin")
     assert [b.subject for b in script.beats] == ["Charlie Chaplin"] * 3 + [""]
@@ -178,3 +178,38 @@ def test_lock_held_by_a_live_job_is_waited_for_then_refused(tmp_path, monkeypatc
     monkeypatch.setattr(time, "sleep", lambda s: None)
     with pytest.raises(RuntimeError, match="another autopilot job"), autopilot.lock(wait_s=0):
         pass
+
+
+def test_learned_shares_move_toward_what_performs_within_bounds():
+    from ytagent.learn import learned_shares, performance
+
+    base = {"facts": 0.4, "money": 0.4, "story": 0.2, "trending": 0.0}
+    hit, flop = performance({"views": 1200, "engagedViews": 600}), performance({"views": 15, "engagedViews": 3})
+    shares = learned_shares(base, {"facts": [hit] * 6, "money": [flop] * 6, "story": [hit]})
+    assert shares["facts"] > 0.4 > shares["money"]
+    assert shares["money"] >= 0.4 * 0.5 / sum([0.4 * 2, 0.4 * 0.5, 0.2])  # never below half its base
+    assert "trending" not in shares and abs(sum(shares.values()) - 1) < 0.01
+    assert learned_shares(base, {"facts": [hit] * 6}) == base  # one format with data: nothing to compare
+
+
+def test_quality_rewards_a_moving_opening_and_real_footage():
+    from ytagent.pipeline import quality
+
+    good = quality([(False, "real", 3.0), (False, "real", 10.0), (True, "real", 10.0), (False, "real", 7.0)], 30, 8)
+    weak = quality([(True, "ai", 3.0), (True, "ai", 10.0), (True, "card", 10.0), (True, "real", 7.0)], 45, 5)
+    assert good["score"] >= 65 > weak["score"]
+    assert good["opening_moves"] and not weak["opening_moves"]
+
+
+def test_trend_topics_that_read_like_news_are_rejected():
+    from ytagent.trends.scoring import TopicAssessment, newsy
+
+    def a(fit, evergreen=True):
+        return TopicAssessment(summary="s", category="c", niche_fit=fit, ad_safety=9, sensitive=False, blocked=False,
+                               evergreen=evergreen, content_format="facts", best_format="short", angle="a")
+
+    assert newsy("Maharashtra Weather Alert: October 29-31", a(8), from_trends=True)
+    assert newsy("Jisoo's dark new MV", a(8), from_trends=True)
+    assert newsy("Pink lake in Australia", a(8, evergreen=False), from_trends=True)
+    assert not newsy("This Australian lake is bubblegum pink", a(8), from_trends=True)
+    assert not newsy("Weather on Venus rains metal", a(7), from_trends=False)  # evergreen ideas skip the word check

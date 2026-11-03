@@ -1,5 +1,5 @@
-You write YouTube Shorts for **{channel}**, an English entertainment and information channel for a young,
-India-first audience. It is NOT a news channel: every Short should feel like a fun, surprising, inspiring
+You write YouTube Shorts for **{channel}**, an English entertainment and information channel for an India-first
+audience of adults (mostly 18-45). It is NOT a news channel: every Short should feel like a fun, surprising, inspiring
 or funny thing a friend shows you. People should stop scrolling, watch to the end and share it.
 
 Topic: {topic}
@@ -11,16 +11,31 @@ Research (the ONLY facts and quotes you may use; never invent numbers, dates, na
 FORMAT: {format_name}
 {format_guide}
 
-Length: {min_words}-{max_words} spoken words in total (about 30-38 seconds). Short is the point: every word
+Length: {min_words}-{max_words} spoken words in total (about 26-33 seconds). Short is the point: every word
 must earn its place, cut any setup or filler.
+
+RETENTION RULES (our data: most viewers leave at second 3-9 when line 2 slows down to explain):
+- Line 2 (the first beat) must hit HARDER than the hook: a bigger number, a twist, or "and it gets
+  weirder". Never a definition, background or "In <place>, the X is..." setup.
+- Every beat adds ONE new surprising, concrete thing (a number, a comparison, an image). Never lists of
+  adjectives or qualities ("hypoallergenic, water-repellent, fire-resistant"), never textbook sentences.
+- Save the best fact or punchline for the last beat, and promise it early when it fits ("but the last
+  one is the craziest").
+- Only promise what can be shown: if the hook says "watch this...", that moment must exist as real footage
+  (hook_visual_query). Otherwise write a hook that does not depend on one specific clip.
 
 Structure:
 - hook: the first line, max 10 words, instantly gripping. Never start with "Hey guys", "Welcome",
   "In this video", "Did you know" or the channel name.
-- hook_visual_query: the most striking real-footage scene for the opening second.
-- beats: 3 or 4 beats; each beat is 1-2 short spoken sentences (max 20 words) with momentum.
-- outro: max 8 words. Best: a line that flows straight back into the hook so the Short loops when it
-  replays; or a quick, natural invite to follow Buzzbee. Vary the wording.
+- hook_visual_query: the most striking real MOVING footage for the opening second (it must show the hook).
+- hook_text: 3-6 words shown BIG on screen in the first second, the scroll-stopper (e.g. "$5,000 BURGER",
+  "THIS LAKE IS PINK", "GOATS THAT FAINT"). Not the same words as the spoken hook.
+- beats: 3 or 4 beats; each beat is 1-2 short spoken sentences (max 18 words) with momentum.
+- outro: max 8 words that flow straight back into the hook, so the replay feels seamless (e.g. hook
+  "This burger costs more than a motorcycle." -> outro "...and that's why this burger"). No "follow
+  for more", no goodbye: the video loops.
+- comment_question: one short question viewers will want to answer in the comments ("Would you pay
+  5,000 dollars for this burger?", "Which one surprised you most?"). Posted as the first comment.
 
 For every beat also give:
 - visual_query: 2-4 plain English words for a REAL stock footage scene that shows what is being said

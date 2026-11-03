@@ -18,7 +18,7 @@ import httpx
 from PIL import Image
 
 from ytagent.config import get_settings
-from ytagent.media.visuals import _NO_CREDIT, _OK_LICENSES, HEADERS, _cache_dir, _terms
+from ytagent.media.visuals import _NO_CREDIT, _OK_LICENSES, HEADERS, _blank, _cache_dir, _terms
 from ytagent.proc import NO_WINDOW
 
 log = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ def find_archive_clip(subject: str, scene: str, seconds: float, used: set[str],
                for k in range(OFFSETS_PER_FILM)]
     moments = [(f, t) for f, t in moments if f"a{f.pageid}@{int(t)}" not in used and t + seconds < f.duration]
     frames = [_frame(film, at) for film, at in moments]
-    scored = [(m, img) for m, img in zip(moments, frames, strict=True) if img is not None]
+    scored = [(m, img) for m, img in zip(moments, frames, strict=True) if img is not None and not _blank(img)]
     if not scored:
         return None
     sims, is_real = score_with_realism(f"a film still of {subject}, {scene}", [img for _, img in scored])

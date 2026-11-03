@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
+import httpx
+from google.auth import exceptions as auth_exceptions
+from google.auth import transport
 from google.auth.exceptions import RefreshError
-from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -16,9 +19,12 @@ from ytagent.config import ROOT, get_settings
 
 log = logging.getLogger(__name__)
 
-# "youtube" covers uploads, metadata edits, playlists and scheduling; analytics is read-only.
+# "youtube" covers uploads, metadata edits, playlists and scheduling; "force-ssl" is needed to post comments;
+# analytics is read-only. Saved tokens keep the scopes they were granted with (an older token without
+# force-ssl keeps working for everything except comments until the next `ytagent youtube login`).
 SCOPES = [
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
 ]
 TOKEN_PATH = ROOT / "secrets" / "youtube_token.json"
@@ -26,6 +32,38 @@ TOKEN_PATH = ROOT / "secrets" / "youtube_token.json"
 
 class NotLoggedIn(RuntimeError):
     pass
+
+
+class _Response(transport.Response):
+    def __init__(self, resp: httpx.Response):
+        self._resp = resp
+
+    @property
+    def status(self) -> int:
+        return self._resp.status_code
+
+    @property
+    def headers(self):
+        return self._resp.headers
+
+    @property
+    def data(self) -> bytes:
+        return self._resp.content
+
+
+class HttpxRequest(transport.Request):
+    """Token refresh over httpx. On this PC `requests`/urllib3 TLS handshakes to Google intermittently fail
+    (SSL EOF for an hour at a time) while httpx and curl keep working; the hourly refresh hit those windows."""
+
+    def __call__(self, url, method="GET", body=None, headers=None, timeout=None, **kwargs):
+        last = None
+        for attempt in range(3):
+            try:
+                return _Response(httpx.request(method, url, content=body, headers=headers, timeout=timeout or 30))
+            except httpx.HTTPError as exc:
+                last = exc
+                time.sleep(2 * (attempt + 1))
+        raise auth_exceptions.TransportError(last) from last
 
 
 def _save(creds: Credentials) -> None:
@@ -46,12 +84,13 @@ def login() -> Credentials:
 def credentials() -> Credentials:
     if not TOKEN_PATH.exists():
         raise NotLoggedIn("no YouTube token: run `ytagent youtube login`")
-    creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+    # No scopes argument: refreshing must ask only for what the saved token was granted.
+    creds = Credentials.from_authorized_user_file(str(TOKEN_PATH))
     if creds.valid:
         return creds
     if creds.expired and creds.refresh_token:
         try:
-            creds.refresh(Request())
+            creds.refresh(HttpxRequest())
         except RefreshError as exc:
             raise NotLoggedIn(f"YouTube login expired or revoked ({exc}): run `ytagent youtube login`") from exc
         _save(creds)

@@ -13,7 +13,7 @@ from ytagent.research import Brief
 
 log = logging.getLogger(__name__)
 
-MIN_WORDS, MAX_WORDS = 65, 80  # Buzzbee's voice is ~2.1 words/s: about 35 s, where Shorts keep viewers to the end
+MIN_WORDS, MAX_WORDS = 50, 62  # with pauses and quips Buzzbee speaks ~1.8 words/s: about 27-33 s
 
 
 class Beat(BaseModel):
@@ -28,12 +28,14 @@ class ShortScript(BaseModel):
     title: str = Field(max_length=100)
     hook: str
     hook_visual_query: str
+    hook_text: str = Field(description="3-6 words shown big on screen in the first second")
     beats: list[Beat] = Field(min_length=3, max_length=5)
     outro: str
     description: str
     tags: list[str]
     pillar: Literal["facts", "funny", "motivation", "story", "trending", "money", "world"]
     sources_used: list[int] = Field(default_factory=list)
+    comment_question: str = Field(description="a question viewers will want to answer, posted as first comment")
 
     def lines(self) -> list[str]:
         """Spoken lines in order: hook, each beat, outro."""
@@ -54,7 +56,7 @@ def write_short(brief: Brief, fmt: str = "facts", angle: str = "") -> ShortScrip
     messages = [{"role": "user", "content": prompt}]
     script = llm.complete_json("writer", messages, ShortScript, temperature=0.8)
     words = script.word_count()
-    if not MIN_WORDS * 0.8 <= words <= MAX_WORDS * 1.2:
+    if not MIN_WORDS * 0.85 <= words <= MAX_WORDS * 1.1:
         log.info("script has %d words, asking for a resize", words)
         fix = (f"The script has {words} spoken words; it must have {MIN_WORDS}-{MAX_WORDS}. "
                "Rewrite it to fit, same JSON format.")

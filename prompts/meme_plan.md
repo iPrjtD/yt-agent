@@ -17,11 +17,14 @@ For the hook and for EVERY beat, plan:
 - meme_top / meme_bottom: an OPTIONAL classic meme caption shown on top of the footage for that beat, e.g.
   "Nobody:" / "Chaplin at 9 years old:", "Me: I'll start tomorrow" / "Chaplin:", "POV:" / "you're the funniest
   man alive". Max 6 words each. Use 1-2 per Short, only where it is genuinely funny or punchy. Otherwise "".
+  Never on line 0 (the hook): the hook already has its own big on-screen text.
 - buzz_line: an OPTIONAL quip Buzzbee says AFTER the narrator's line (max 6 words, funny or warm, never
   mocking real suffering or people). Use 1-2 per Short; the video must stay under 60 seconds. Otherwise "".
 
 - shots: the VISUALS for this line, so that what is on screen always shows what is being said.
-  Split the line into 2-3 shots, one per phrase of about 8-12 spoken words (a new shot every ~3 seconds).
+  Split the line into 2-4 shots, one per phrase of about 5-7 spoken words (a new shot every ~2 seconds:
+  fast cuts keep viewers watching). Prefer scenes with MOVEMENT (people doing things, animals moving,
+  machines working, water, crowds, drones over places) over static objects.
   For each shot:
   - words: the first 3 words of that phrase, copied EXACTLY from the line (used to time the cut).
   - query: a 2-5 word search for REAL stock footage that literally shows those words: the concrete

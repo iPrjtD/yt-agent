@@ -87,9 +87,11 @@ def caption_chunks(words: list[Word], max_words: int = 3, max_chars: int = 16) -
 
 
 def build_ass(words: list[Word], labels: list[tuple[float, float, str]], width: int, height: int,
-              memes: list[tuple[float, float, str, str]] = (), buzz_lines: frozenset[int] = frozenset()) -> str:
+              memes: list[tuple[float, float, str, str]] = (), buzz_lines: frozenset[int] = frozenset(),
+              hook: tuple[float, float, str] | None = None, follow: tuple[float, float] | None = None) -> str:
     """Karaoke-style captions (current word in honey; Buzzbee's lines in honey with white highlight),
-    top labels, and classic meme captions (black text on a white box)."""
+    top labels, classic meme captions (black text on a white box), the big hook text that stops the scroll
+    in the first second, and a small "follow" pill during the last line."""
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -102,11 +104,19 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Caption,Poppins ExtraBold,118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,9,4,2,50,50,600,1
 Style: Label,Poppins Black,74,&H0000C3FF,&H0000C3FF,&H00141414,&H00141414,0,0,0,0,100,100,0,0,3,18,0,8,70,70,310,1
 Style: Meme,Poppins ExtraBold,84,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,3,24,0,8,90,90,300,1
+Style: Hook,Poppins Black,112,&H00141414,&H00141414,&H0000C3FF,&H0000C3FF,0,0,0,0,100,100,0,0,3,26,0,8,80,80,420,1
+Style: Follow,Poppins ExtraBold,56,&H00141414,&H00141414,&H0000C3FF,&H0000C3FF,0,0,0,0,100,100,0,0,3,14,0,8,90,90,330,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
+    if hook and hook[2]:
+        events.append(f"Dialogue: 3,{_ts(hook[0])},{_ts(hook[1])},Hook,,0,0,0,,{{\\fad(0,200)}}"
+                      f"{_escape(hook[2].upper())}")
+    if follow:
+        events.append(f"Dialogue: 3,{_ts(follow[0])},{_ts(follow[1])},Follow,,0,0,0,,"
+                      "{\\fad(150,0)}FOLLOW FOR MORE")
     meme_spans = [(s, e) for s, e, *_ in memes]
     for start, end, text in labels:
         # A meme caption replaces the label while it is on screen.
@@ -163,7 +173,8 @@ SFX_VOLUME = 0.45
 def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], work: Path,
                  labels: list[tuple[float, float, str]], music: Path | None = None,
                  memes: list[tuple[float, float, str, str]] = (), buzz_lines: frozenset[int] = frozenset(),
-                 reactions: list = (), sfx: list[tuple[float, Path]] = (), host_dir: Path | None = None) -> Path:
+                 reactions: list = (), sfx: list[tuple[float, Path]] = (), host_dir: Path | None = None,
+                 hook: tuple[float, float, str] | None = None, follow: tuple[float, float] | None = None) -> Path:
     """`reactions` are media.reactions.Reaction with rendered frames; `sfx` are (time, file) pairs;
     `host_dir` holds the talking corner-host frames (else a static badge)."""
     cfg = get_settings().video
@@ -177,7 +188,7 @@ def render_short(segments: list[Segment], voice_wav: Path, words: list[Word], wo
     ffmpeg(["-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "video_only.mp4"], cwd=work)
 
     total = sum(seg.duration for seg in segments)
-    (work / "captions.ass").write_text(build_ass(words, labels, w, h, memes, buzz_lines), encoding="utf-8")
+    (work / "captions.ass").write_text(build_ass(words, labels, w, h, memes, buzz_lines, hook, follow), encoding="utf-8")
     fonts = work / "fonts"
     shutil.copytree(FONTS, fonts, dirs_exist_ok=True)
     shutil.copy(BRAND_DIR / "mascot.png", work / "mascot.png")

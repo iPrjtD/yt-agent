@@ -42,6 +42,7 @@ PLAYLISTS = [
     PlaylistSpec("🌍 World Buzz", "Surprising countries, amazing places and travel spots worth the hype."),
     PlaylistSpec("🔍 Buzz Deep Dives", "Our weekly longer videos on the biggest stories."),
     PlaylistSpec("Pending review", "Agent drafts waiting for owner review.", "private"),
+    PlaylistSpec("⭐ Recommended", "The best-scoring drafts in Pending review: review these first.", "private"),
     PlaylistSpec("Urgent review", "Time-sensitive agent drafts; review first.", "private"),
     PlaylistSpec("Approved", "Owner-approved drafts; the agent schedules these.", "private"),
     PlaylistSpec("Rejected", "Owner-rejected drafts; never published.", "private"),

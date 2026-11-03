@@ -11,6 +11,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from googleapiclient.errors import HttpError
 from sqlalchemy import select
 
 from ytagent.config import get_settings
@@ -18,7 +19,7 @@ from ytagent.youtube import data_api
 
 log = logging.getLogger(__name__)
 
-PENDING, APPROVED, REJECTED = "Pending review", "Approved", "Rejected"
+PENDING, APPROVED, REJECTED, RECOMMENDED = "Pending review", "Approved", "Rejected", "⭐ Recommended"
 _WRITABLE_STATUS = ("privacyStatus", "embeddable", "license", "publicStatsViewable", "publishAt",
                     "selfDeclaredMadeForKids", "containsSyntheticMedia")
 
@@ -71,6 +72,19 @@ def _add_to(yt, playlist_id: str | None, video_id: str) -> None:
         "playlistId": playlist_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
 
 
+def _first_comment(yt, video_id: str, question: str) -> str:
+    """Start the conversation under a Short that just went live (comments are a strong engagement signal).
+    Needs the youtube.force-ssl permission: run `ytagent youtube login` once if it is missing."""
+    try:
+        yt.commentThreads().insert(part="snippet", body={"snippet": {"videoId": video_id, "topLevelComment": {
+            "snippet": {"textOriginal": f"{question} 👇"}}}}).execute()
+        return "posted"
+    except HttpError as exc:
+        log.warning("first comment on %s failed (%s): run `ytagent youtube login` to grant comment access",
+                    video_id, exc.status_code)
+        return f"failed {exc.status_code}"
+
+
 def _video_status(yt, video_ids: list[str]) -> dict[str, dict]:
     out = {}
     for i in range(0, len(video_ids), 50):
@@ -91,6 +105,8 @@ def sync() -> dict:
     if APPROVED not in lists:
         return {"error": "no 'Approved' playlist on the channel"}
     pending = _items(yt, lists[PENDING]) if PENDING in lists else []
+    if RECOMMENDED in lists:  # entries there leave together with their "Pending review" entry
+        pending += _items(yt, lists[RECOMMENDED])
     approved = _items(yt, lists[APPROVED])
     rejected = _items(yt, lists[REJECTED]) if REJECTED in lists else []
     report = {"scheduled": [], "published_now": [], "rejected": [], "went_live": []}
@@ -149,4 +165,7 @@ def sync() -> dict:
                 row.status = "published"
                 report["went_live"].append(row.title)
                 _remove_from(yt, pending, vid)
+                question = (row.script or {}).get("comment_question", "")
+                if question:
+                    row.meta = {**(row.meta or {}), "first_comment": _first_comment(yt, vid, question)}
     return {k: v for k, v in report.items() if v}

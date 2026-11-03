@@ -82,6 +82,22 @@ def combine(h: dict[str, float], assessment: TopicAssessment | None, settings: S
     return round(100 * total / weights, 2)
 
 
+# News, weather, policy, releases and celebrity updates flopped on the channel (0-40 views each).
+NEWS_WORDS = re.compile(
+    r"\b(weather|alert|forecast|mandates?|election|poll|minister|government|court|verdict|policy|breaking|"
+    r"announce[sd]?|launch(es|ed)?|released?|trailer|teaser|mv|music video|single|album|season \d+|episode|"
+    r"match|vs\.?|score|live|today|tonight|this week|update|news|dies|death|arrested|scandal)\b", re.I)
+MIN_NICHE_FIT = 6
+
+
+def newsy(title: str, assessment: TopicAssessment, from_trends: bool) -> bool:
+    """Trend-sourced topics must be evergreen, fit the channel well and not read like news."""
+    if not from_trends:
+        return assessment.niche_fit < MIN_NICHE_FIT - 2
+    return (not assessment.evergreen or assessment.niche_fit < MIN_NICHE_FIT
+            or bool(NEWS_WORDS.search(title)))
+
+
 def assess(topic: Topic, signals: list[TrendSignal], settings: Settings) -> TopicAssessment:
     ch = settings.channel
     channel_desc = "; ".join(ch.niches) if ch.niches else "broad entertainment and information"
@@ -128,7 +144,8 @@ def score_topics(s: Session, settings: Settings, llm_limit: int = 20) -> dict[st
                                  round(assessment.niche_fit * assessment.ad_safety / 100, 3)}
         if assessment is None:
             continue
-        if assessment.blocked or assessment.sensitive:
+        from_trends = not any(sig.source in IDEA_SOURCES for sig in recent)
+        if assessment.blocked or assessment.sensitive or newsy(topic.title, assessment, from_trends):
             topic.status = "rejected"
             rejected += 1
         else:

@@ -19,7 +19,7 @@ from ytagent.media.archive import find_archive_clip
 from ytagent.media.reactions import Reaction, loudness_envelope, render_frames, render_host_frames
 from ytagent.media.render import Segment, pick_music, qa, render_short
 from ytagent.media.sfx import sfx_file
-from ytagent.media.visuals import Visual, find_subject_visual, find_visual, text_card
+from ytagent.media.visuals import VIDEO_BONUS, Visual, find_subject_visual, find_visual, text_card
 from ytagent.media.voice import narrate_lines
 from ytagent.models import Topic, Video
 from ytagent.providers.images import available as ai_available
@@ -31,7 +31,8 @@ from ytagent.script import MemePlan, ShortScript, plan_meme, write_short
 
 log = logging.getLogger(__name__)
 
-OUTRO_CARD = "Follow for more buzz"
+OPENING_VIDEO_BONUS = 0.08  # the first second decides whether people stop scrolling: strongly prefer motion
+RECOMMEND_AT = 65            # quality score from which a Short is added to the "⭐ Recommended" playlist
 SHOT_SECONDS = 4.0
 
 
@@ -53,9 +54,23 @@ def _format_of(topic: Topic) -> str:
     return fmt if fmt in get_settings().formats else "facts"
 
 
+def format_shares() -> dict[str, float]:
+    """Target share per format: settings.yaml, adjusted by what performs (data/learned_mix.json from the daily
+    `learn` job) when present. Formats with share 0 are not produced."""
+    shares = {name: f.share for name, f in get_settings().formats.items()}
+    learned = get_settings().data_dir / "learned_mix.json"
+    if learned.exists():
+        try:
+            shares.update({k: float(v) for k, v in json.loads(learned.read_text("utf-8"))["shares"].items()
+                           if k in shares})
+        except (ValueError, KeyError, TypeError):
+            log.warning("ignoring unreadable %s", learned.name)
+    return {k: v for k, v in shares.items() if v > 0}
+
+
 def pick_topic(topic_id: int | None, fmt: str | None = None) -> tuple[Topic, str]:
     """Explicit topic, else the best topic of the format furthest below its target share of recent videos."""
-    formats = get_settings().formats
+    shares = format_shares()
     with session_scope() as s:
         if topic_id:
             topic = s.get(Topic, topic_id)
@@ -65,7 +80,7 @@ def pick_topic(topic_id: int | None, fmt: str | None = None) -> tuple[Topic, str
         recent = s.scalars(select(Video).where(Video.status != "failed").order_by(Video.id.desc()).limit(20)).all()
         counts = Counter(v.script.get("pillar") for v in recent if v.script)
         total = max(1, sum(counts.values()))
-        order = [fmt] if fmt else sorted(formats, key=lambda f: counts[f] / total - formats[f].share)
+        order = [fmt] if fmt else sorted(shares, key=lambda f: counts[f] / total - shares[f])
         for want in order:
             topic = s.scalar(
                 select(Topic).where(Topic.status == "scored", Topic.llm["content_format"].astext == want,
@@ -106,7 +121,7 @@ def _meme_layers(plan: MemePlan, narration, starts: list[float], ends: list[floa
     memes, reactions, sfx = [], [], []
     for unit, step in enumerate([plan.hook, *plan.beats]):
         start, end = starts[unit], ends[unit]
-        if step.meme_top or step.meme_bottom:
+        if unit > 0 and (step.meme_top or step.meme_bottom):  # the hook shows its own big text instead
             memes.append((start + 0.1, min(end - 0.1, start + 3.2), step.meme_top, step.meme_bottom))
         if step.sfx != "none":
             sfx.append((max(0.0, start - 0.05), sfx_file(step.sfx, cache)))
@@ -150,32 +165,60 @@ def _shot_times(shots: list, words: list, start: float, end: float) -> list[floa
     return [t for t in times if t < end - 0.8] or [start]
 
 
+class NoFootage(RuntimeError):
+    """The opening shot (the hook's promise) has no real footage: skip the topic before spending voice quota."""
+
+
 def _shot_visual(shot, subject: str, portrait: bool, seconds: float, used: set[str], credits: list[str],
-                 work: Path, main_subject: str = "") -> tuple[Visual | None, bool]:
+                 work: Path, main_subject: str = "", real_only: bool = False,
+                 video_bonus: float = VIDEO_BONUS) -> tuple[Visual | None, bool, str]:
     """Best visual for one shot: the named subject's real footage, real stock that shows the words,
-    else an AI-drawn scene. Never an unrelated clip."""
+    else an AI-drawn scene (not with `real_only`). Never an unrelated clip.
+
+    Returns (visual, fit, kind) with kind "real" or "ai" (for the quality score).
+    """
     ai_cache = get_settings().data_dir / "cache" / "ai"
     subject = shot.subject.strip() or subject  # the shot's own named subject, else the beat's
     if subject:
-        visual, fit = _subject_visual(subject, shot.query, seconds, used, credits, portrait=portrait)
+        visual, fit = _subject_visual(subject, shot.query, seconds, used, credits, portrait=portrait,
+                                      video_bonus=video_bonus)
         if visual:
-            return visual, fit
+            return visual, fit, "real"
     elif main_subject:  # e.g. "hands sorting spice threads" in a saffron Short: real saffron if it fits
-        visual = find_subject_visual(main_subject, shot.query, seconds, used, credits, scene_bar=STRONG_MATCH)
+        visual = find_subject_visual(main_subject, shot.query, seconds, used, credits, scene_bar=STRONG_MATCH,
+                                     video_bonus=video_bonus)
         if visual:
-            return visual, False
-    ai_on = ai_available()
+            return visual, False, "real"
+    ai_on = ai_available() and not real_only
     if ai_on and HISTORIC.search(f"{shot.scene} {shot.query}"):
         # Stock libraries have no footage of ancient/old-era moments: draw the scene instead.
         drawn = generate_scene(shot.scene, ai_cache)
         if drawn:
-            return Visual(drawn, still=True), True
-    # With AI scenes available, real stock must be a strong match; weaker ones get drawn.
-    visual = find_visual(shot.query, seconds, used, credits, min_match=STRONG_MATCH if ai_on else None)
+            return Visual(drawn, still=True), True, "ai"
+    # With AI scenes available (or for the opening), real stock must be a strong match; weaker ones get drawn.
+    strict = ai_on or real_only
+    visual = find_visual(shot.query, seconds, used, credits, min_match=STRONG_MATCH if strict else None,
+                         video_bonus=video_bonus)
     if visual:
-        return visual, False
+        return visual, False, "real"
+    if not ai_on:
+        return None, False, ""
     drawn = generate_scene(shot.scene, ai_cache)
-    return (Visual(drawn, still=True), True) if drawn else (None, False)
+    return (Visual(drawn, still=True), True, "ai") if drawn else (None, False, "")
+
+
+def quality(parts: list[tuple[bool, str, float]], duration: float, niche_fit: float) -> dict:
+    """0-100 score from what the data says keeps viewers: a moving opening, motion throughout, real footage,
+    26-33 s length and topic fit. `parts` are (still, kind, seconds) per segment."""
+    total = sum(sec for *_, sec in parts) or 1.0
+    opening = 20 if parts and not parts[0][0] else 8 if parts and parts[0][1] == "real" else 0
+    motion = 30 * sum(sec for still, _, sec in parts if not still) / total
+    real = 20 * sum(sec for _, kind, sec in parts if kind == "real") / total
+    length = 10 if 24 <= duration <= 34 else 5 if duration <= 40 else 0
+    fit = 20 * max(0.0, min(1.0, niche_fit / 10))
+    score = round(opening + motion + real + length + fit)
+    return {"score": score, "opening_moves": bool(parts and not parts[0][0]), "motion": round(motion / 30, 2),
+            "real": round(real / 20, 2), "duration": round(duration, 1), "niche_fit": niche_fit}
 
 
 def main_subject(plan: MemePlan) -> str:
@@ -195,7 +238,7 @@ def _fill_subjects(script: ShortScript, person: str) -> None:
 
 
 def _subject_visual(subject: str, scene: str, seconds: float, used: set[str], credits: list[str],
-                    portrait: bool) -> tuple[Visual | None, bool]:
+                    portrait: bool, video_bonus: float = VIDEO_BONUS) -> tuple[Visual | None, bool]:
     """Real footage of the named subject: a portrait to open on, else archive film, else real photos/stock of it.
 
     Returns (visual, fit) where fit=True shows the whole (4:3 archive) frame over a blurred background.
@@ -206,7 +249,8 @@ def _subject_visual(subject: str, scene: str, seconds: float, used: set[str], cr
         clip = find_archive_clip(subject, scene, seconds, used, credits)
         if clip:
             return Visual(clip, still=False), True
-    return find_subject_visual(subject, scene, seconds, used, credits, portrait=portrait), False
+    return find_subject_visual(subject, scene, seconds, used, credits, portrait=portrait,
+                               video_bonus=video_bonus), False
 
 
 def _person(topic: Topic) -> str:
@@ -237,6 +281,8 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
             brief = Brief(topic.title, [Source(**x) for x in json.loads((previous / "brief.json").read_text("utf-8"))])
             saved = json.loads((previous / "script.json").read_text("utf-8"))
             saved.setdefault("hook_visual_query", "")
+            saved.setdefault("hook_text", "")
+            saved.setdefault("comment_question", "")
             for beat in saved.get("beats", []):
                 beat.setdefault("subject", "")
             script = ShortScript.model_validate(saved)
@@ -248,6 +294,17 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
 
         log.info("script ready: %r; planning shots", script.title)
         plan = _load_or_plan(previous, work, script, fmt)
+        _fill_subjects(script, person)
+        subjects = [person or script.beats[0].subject] + [b.subject for b in script.beats]
+        main = main_subject(plan)
+        used, credits = set(), []
+        # The opening must be REAL footage of what the hook promises (ideally moving): check before narrating.
+        opening_shot = plan.hook.shots[0]
+        opening, opening_fit, _ = _shot_visual(opening_shot, subjects[0], portrait=bool(person), seconds=3.0,
+                                               used=used, credits=credits, work=work, main_subject=main,
+                                               real_only=True, video_bonus=OPENING_VIDEO_BONUS)
+        if opening is None:
+            raise NoFootage(f"no real footage for the opening shot {opening_shot.query!r}")
         # Spoken lines in order: hook, each beat (+ an optional Buzzbee quip), outro. Units = hook, beats, outro.
         tts_lines: list[Line] = []
         unit_of_line: list[int] = []
@@ -268,15 +325,12 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         starts = [0.0] + [narration.spans[first_line[u]][0] for u in range(1, n_units)]
         ends = starts[1:] + [narration.duration + 0.35]
         on_screen = [""] + [b.on_screen for b in script.beats]
-        _fill_subjects(script, person)
-        subjects = [person or script.beats[0].subject] + [b.subject for b in script.beats]
         steps = [plan.hook, *plan.beats]
-        main = main_subject(plan)
-        segments, labels, used, credits = [], [], set(), []
+        segments, labels, parts = [], [], []
         for i, (start, end) in enumerate(zip(starts, ends, strict=True)):
-            if i == n_units - 1:  # outro: branded end card
-                card = text_card(OUTRO_CARD, work / "card_outro.png")
-                segments.append(Segment(card, end - start, still=True))
+            if i == n_units - 1:  # outro: the opening footage again, so the replay loops seamlessly
+                segments.append(Segment(opening.path, end - start, still=opening.still, fit=opening_fit))
+                parts.append((opening.still, "real", end - start))
                 continue
             labels.append((start + 0.15, end - 0.1, on_screen[i]))
             # One shot per spoken phrase, cut when its first words are heard.
@@ -286,31 +340,43 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
             cuts = _shot_times(shots, unit_words, start, end)
             for k, cut in enumerate(cuts):
                 seconds = (cuts[k + 1] if k + 1 < len(cuts) else end) - cut
-                visual, fit = _shot_visual(shots[k], subjects[i], portrait=bool(person) and i == 0 and k == 0,
-                                           seconds=seconds, used=used, credits=credits, work=work,
-                                           main_subject=main)
+                if i == 0 and k == 0:
+                    visual, fit, kind = opening, opening_fit, "real"
+                else:
+                    visual, fit, kind = _shot_visual(shots[k], subjects[i], portrait=False, seconds=seconds,
+                                                     used=used, credits=credits, work=work, main_subject=main)
                 if visual is None and segments and k > 0:  # nothing fits: hold the previous shot longer
                     segments[-1].duration += seconds
+                    parts[-1] = (*parts[-1][:2], parts[-1][2] + seconds)
                     continue
                 if visual is None:
                     card = text_card(on_screen[i] or script.title, work / f"card_{i:02d}_{k}.png", with_mascot=False)
                     segments.append(Segment(card, seconds, still=True))
+                    parts.append((True, "card", seconds))
                 else:
                     segments.append(Segment(visual.path, seconds, still=visual.still, fit=fit))
+                    parts.append((visual.still, kind, seconds))
 
         log.info("%d segments; rendering", len(segments))
         memes, reactions, sfx, host_dir = _meme_layers(plan, narration, starts, ends, work)
         buzz_lines = frozenset(i for i, ln in enumerate(tts_lines) if ln.speaker == "Buzzbee")
         music = pick_music(video_id, style.music if style else "")
+        hook_text = (0.0, min(ends[0], 2.6), script.hook_text)
+        follow = (starts[-1], ends[-1] - 0.1)
         final = render_short(segments, narration.wav, narration.words, work, labels, music,
-                             memes=memes, buzz_lines=buzz_lines, reactions=reactions, sfx=sfx, host_dir=host_dir)
+                             memes=memes, buzz_lines=buzz_lines, reactions=reactions, sfx=sfx, host_dir=host_dir,
+                             hook=hook_text, follow=follow)
         problems = qa(final, narration.duration)
+        score = quality(parts, narration.duration, float(topic.llm.get("niche_fit") or 5))
+        log.info("quality %s", score)
         description = full_description(script, brief.sources, credits)
         write_package(work, script, description)
 
         mode = settings.publishing.mode
         do_upload = upload if upload is not None else mode == "api"
-        youtube_id = upload_private(final, script, description) if do_upload and not problems else None
+        recommended = score["score"] >= RECOMMEND_AT
+        youtube_id = (upload_private(final, script, description, recommended=recommended)
+                      if do_upload and not problems else None)
         status = "failed" if problems else "pending_review"
     except Exception:
         with session_scope() as s:
@@ -328,8 +394,9 @@ def make_short(topic_id: int | None = None, upload: bool | None = None, fmt: str
         row.status, row.title, row.description, row.tags = status, script.title, description, script.tags
         row.script, row.youtube_id = script.model_dump(), youtube_id
         row.meta = {"dir": str(work), "duration": narration.duration, "problems": problems,
-                    "sources": [x.url for x in brief.sources]}
+                    "sources": [x.url for x in brief.sources], "quality": score, "recommended": recommended}
         s.get(Topic, topic.id).status = "used"
     return {"video_id": video_id, "title": script.title, "dir": str(work), "status": status,
             "duration_s": round(narration.duration, 1), "problems": problems, "youtube_id": youtube_id,
+            "quality": score["score"], "recommended": recommended,
             "final": str(Path(work) / "final.mp4")}

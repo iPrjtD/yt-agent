@@ -240,7 +240,7 @@ def job_produce() -> dict:
         notify("Buzzbee: production postponed", "Gemini daily quota is used up; the next run will try again.")
         return {"skipped": "gemini quota"}
     last_error = ""
-    for _ in range(2):
+    for _ in range(3):  # a topic without real opening footage is skipped cheaply (before narration)
         try:
             result = make_short()
             if result["status"] == "pending_review":
@@ -301,8 +301,19 @@ def job_review() -> dict:
     return result
 
 
-JOBS = {"ideas": job_ideas, "produce": job_produce, "cleanup": job_cleanup, "review": job_review}
-LIGHT_JOBS = {"review"}  # quick API jobs: own lock, no local models needed
+def job_learn() -> dict:
+    """Pull YouTube Analytics per Short, shift the format mix toward what performs, write PERFORMANCE.md."""
+    from ytagent.learn import run_learning
+
+    result = run_learning()
+    shares = ", ".join(f"{k} {v:.0%}" for k, v in sorted(result["shares"].items(), key=lambda kv: -kv[1]))
+    notify("Buzzbee: daily performance", f"{result['videos']} Shorts analysed. Mix: {shares}")
+    return result
+
+
+JOBS = {"ideas": job_ideas, "produce": job_produce, "cleanup": job_cleanup, "review": job_review,
+        "learn": job_learn}
+LIGHT_JOBS = {"review", "learn"}  # quick API jobs: own lock, no local models needed
 
 
 def run(job: str) -> dict:
@@ -310,7 +321,7 @@ def run(job: str) -> dict:
     log.info("=== %s ===", job)
     try:
         # Heavy jobs queue behind each other (e.g. ideas while a Short renders) instead of being skipped.
-        with lock("review" if job in LIGHT_JOBS else "autopilot", wait_s=0 if job in LIGHT_JOBS else 1200):
+        with lock("review" if job in LIGHT_JOBS else "autopilot", wait_s=300 if job in LIGHT_JOBS else 1200):
             ensure_services(need_models=job not in LIGHT_JOBS | {"cleanup"})
             result = JOBS[job]()
             write_ready_list()

@@ -65,9 +65,11 @@ def tasks() -> list[dict]:
     out.append({"name": "Produce", "job": "produce", "start": f"{today}T{cfg.produce_start}:00", "repetition": f"""
       <Repetition><Interval>PT{cfg.produce_every_hours}H</Interval><Duration>P1D</Duration></Repetition>""",
                 "description": f"Buzzbee: make and upload one Short every {cfg.produce_every_hours} h",
-                "limit": "PT50M"})
+                "limit": "PT90M"})  # a slow run just skips the next hour (IgnoreNew)
     out.append({"name": "Cleanup", "job": "cleanup", "start": f"{today}T{cfg.cleanup_at}:00", "repetition": "",
                 "description": "Buzzbee: clear old cache files", "limit": "PT15M"})
+    out.append({"name": "Learn", "job": "learn", "start": f"{today}T06:10:00", "repetition": "",
+                "description": "Buzzbee: analyse Short performance and adjust the format mix", "limit": "PT15M"})
     out.append({"name": "Review", "job": "review", "start": f"{today}T00:05:00",
                 "repetition": """
       <Repetition><Interval>PT10M</Interval><Duration>P1D</Duration></Repetition>""",
