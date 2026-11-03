@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 from google.auth import exceptions as auth_exceptions
@@ -66,6 +68,28 @@ class HttpxRequest(transport.Request):
         raise auth_exceptions.TransportError(last) from last
 
 
+class _HttpxFlow(InstalledAppFlow):
+    """Sign-in flow whose code-for-token exchange also goes over httpx (same TLS problem as HttpxRequest)."""
+
+    def fetch_token(self, **kwargs):
+        query = parse_qs(urlparse(kwargs["authorization_response"]).query)
+        if query.get("state", [None])[0] != self.oauth2session._state:
+            raise RuntimeError("sign-in response did not match this request (state mismatch); try again")
+        if "code" not in query:
+            raise RuntimeError(f"sign-in was not completed: {query.get('error', ['no code'])[0]}")
+        data = {"grant_type": "authorization_code", "code": query["code"][0], "redirect_uri": self.redirect_uri,
+                "client_id": self.client_config["client_id"], "client_secret": self.client_config["client_secret"],
+                "code_verifier": self.code_verifier}
+        resp = HttpxRequest()(self.client_config["token_uri"], "POST", body=urlencode(data).encode(),
+                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+        token = json.loads(resp.data)
+        if resp.status != 200:
+            raise RuntimeError(f"Google refused the sign-in: {token.get('error_description') or token}")
+        token["expires_at"] = time.time() + float(token.get("expires_in", 3600))
+        self.oauth2session.token = token
+        return token
+
+
 def _save(creds: Credentials) -> None:
     TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
     TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
@@ -74,7 +98,7 @@ def _save(creds: Credentials) -> None:
 def login() -> Credentials:
     """Interactive Google sign-in in the browser; pick the channel the agent should manage."""
     secrets = Path(ROOT / get_settings().env.youtube_client_secrets)
-    flow = InstalledAppFlow.from_client_secrets_file(str(secrets), SCOPES)
+    flow = _HttpxFlow.from_client_secrets_file(str(secrets), SCOPES)
     creds = flow.run_local_server(port=0, prompt="consent", access_type="offline",
                                   authorization_prompt_message="Opening Google sign-in: {url}")
     _save(creds)
